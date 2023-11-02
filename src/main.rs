@@ -1,55 +1,13 @@
-// use std::fs::OpenOptions;
-// use std::io::{Read, Write};
-// use std::path::{Path, PathBuf};
-//
-// use futures::{channel::mpsc::unbounded, SinkExt, StreamExt};
-// use home::home_dir;
-// use notify::{recommended_watcher, RecursiveMode, Watcher};
-// use serde::{Deserialize, Serialize};
-//
-// fn create_app_home(path: &PathBuf) {
-//     fs::create_dir(&path).unwrap();
-//     let mut watchers_file = fs::File::create(path.join(CONFIG_FILE)).unwrap();
-//     let config = SherryConfig {
-//         version: String::from("0.0.1"),
-//         directories: Vec::new(),
-//     };
-//     watchers_file.write_all("".as_bytes()).unwrap();
-// }
-//
-// fn initialize() -> Vec<PathBuf> {
-//     let home_path = home_dir().unwrap();
-//     let app_home = home_path.join(CONFIG_DIR);
-//
-//     if !app_home.exists() {
-//         create_app_home(&app_home);
-//     }
-//
-//     let mut watchers_file = OpenOptions::new()
-//         .read(true)
-//         .open(app_home.join(CONFIG_FILE))
-//         .unwrap();
-//     let mut content: String = String::new();
-//     watchers_file.read_to_string(&mut content).unwrap();
-//
-//     let mut path_arr = Vec::new();
-//     content = content.replace("\r\n", "\n");
-//     for line in content.split('\n') {
-//         let path = PathBuf::from(line);
-//         if path.exists() {
-//             path_arr.push(path);
-//         }
-//     }
-//     path_arr
-// }
-
 mod config;
 
 use clap::Parser;
 use std::{env};
-use std::path::{PathBuf};
+use std::sync::{Arc, Mutex};
+use std::path::{Path, PathBuf};
+use std::time::Duration;
 use home::home_dir;
 use notify::{RecursiveMode, Watcher};
+use notify_debouncer_full::new_debouncer;
 use path_clean::PathClean;
 
 const CONFIG_DIR: &str = ".sherry";
@@ -83,8 +41,32 @@ fn main() {
         return;
     }
 
-    let mut config_watcher = notify::recommended_watcher(config::get_config_watch_cb(config_dir.clone())).unwrap();
+    let shared_config: Arc<Mutex<config::SherryConfigJSON>> = Arc::new(Mutex::new(config::read_config(&config_dir).unwrap()));
+
+    let mut config_watcher = notify::recommended_watcher(
+        config::get_config_watch_cb(config_dir.clone(), Arc::clone(&shared_config))
+    ).unwrap();
     config_watcher.watch(config_dir.as_path(), RecursiveMode::Recursive).unwrap();
+
+
+
+    let watchers_config = Arc::clone(&shared_config);
+    let mut debouncer = new_debouncer(Duration::from_millis(200), None, move |results| {
+        if let Ok(results) = results {
+            let config = watchers_config.lock().unwrap();
+            println!("Config: {:?}", *config);
+            for result in results {
+                println!("Result: {:?}", result);
+            }
+        }
+    }).unwrap();
+    let watcher = debouncer.watcher();
+    {
+        let config = shared_config.lock().unwrap();
+        for watcher_path in config.watchers.iter() {
+            watcher.watch(Path::new(&watcher_path.local_path), RecursiveMode::Recursive).unwrap();
+        }
+    }
 
     loop {}
 
