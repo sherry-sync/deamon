@@ -15,3 +15,6 @@ notify-debouncer-full = "0.3.1"
 notify = { version = "6.1.1", features = ["serde"] }
 clap = { version = "4.4.7", features = ["derive"] }
 path-clean = "1.0.1"
+parking_lot = { version = "0.12.1", features = ["serde"] }
+serde-diff = "0.4.1"
+serde_json_diff = "0.2.0"
