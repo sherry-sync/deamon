@@ -18,3 +18,4 @@ path-clean = "1.0.1"
 parking_lot = { version = "0.12.1", features = ["serde"] }
 serde-diff = "0.4.1"
 serde_json_diff = "0.2.0"
+seahash = "4.1.0"

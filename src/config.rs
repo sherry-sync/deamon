@@ -19,7 +19,7 @@ pub enum AccessRights {
     Write,
 }
 
-#[derive(SerdeDiff, Serialize, Deserialize, Debug)]
+#[derive(SerdeDiff, Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct SherryConfigSourceJSON {
     pub id: String,
@@ -31,15 +31,14 @@ pub struct SherryConfigSourceJSON {
     pub allowed_file_types: Vec<String>,
 }
 
-
-#[derive(SerdeDiff, Serialize, Deserialize, Debug)]
+#[derive(SerdeDiff, Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct SherryConfigWatcherJSON {
     pub source: String,
     pub local_path: String,
 }
 
-#[derive(SerdeDiff, Serialize, Deserialize, Debug)]
+#[derive(SerdeDiff, Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct SherryConfigJSON {
     pub sources: HashMap<String, SherryConfigSourceJSON>,
@@ -105,6 +104,8 @@ pub fn read_config(dir: &Path) -> Result<SherryConfigJSON, String> {
 
     Ok(sources.unwrap())
 }
+
+
 
 pub fn initialize_config_dir(dir: &PathBuf) -> Result<(), ()> {
     if !dir.exists() && fs::create_dir_all(dir).is_err() {
