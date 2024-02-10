@@ -1,14 +1,15 @@
-use parking_lot::{Mutex};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::fs::OpenOptions;
 use std::io::{Read, Seek};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::mpsc::Sender;
+
 use notify_debouncer_full::DebounceEventResult;
+use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
-use serde_diff::{SerdeDiff};
+use serde_diff::SerdeDiff;
 
 const CONFIG_FILE: &str = "config.json";
 
@@ -80,11 +81,35 @@ fn get_config_string(dir: &Path) -> std::io::Result<String> {
     Ok(buf)
 }
 
-fn write_config(dir: &Path, config: &SherryConfigJSON) -> Result<(), ()> {
+pub fn write_config(dir: &Path, config: &SherryConfigJSON) -> Result<(), ()> {
     match fs::write(dir.join(CONFIG_FILE), serde_json::to_string_pretty(&config).unwrap()) {
         Ok(_) => Ok(()),
         Err(_) => Err(()),
     }
+}
+
+pub fn revalidate_sources(dir: &Path, config: &SherryConfigJSON) {
+    let mut new_config = config.clone();
+    let mut required_sources = HashSet::new();
+    new_config.watchers = new_config.watchers
+        .iter()
+        .filter(|w| {
+            if PathBuf::from(&w.local_path).exists() {
+                required_sources.insert(w.source.clone());
+                true
+            } else { false }
+        })
+        .cloned()
+        .collect();
+
+    new_config.sources = required_sources
+        .iter()
+        .fold(HashMap::new(), |mut acc, v| {
+            acc.insert(v.clone(), new_config.sources.get(v).unwrap().clone());
+            acc
+        });
+
+    match write_config(dir, &new_config) { _ => {} }
 }
 
 pub fn read_config(dir: &Path) -> Result<SherryConfigJSON, String> {
@@ -104,7 +129,6 @@ pub fn read_config(dir: &Path) -> Result<SherryConfigJSON, String> {
 
     Ok(sources.unwrap())
 }
-
 
 
 pub fn initialize_config_dir(dir: &PathBuf) -> Result<(), ()> {
@@ -147,7 +171,7 @@ pub fn get_config_watch_cb(dir: PathBuf, config_mutex: Arc<Mutex<SherryConfigJSO
                     if let Ok(config) = read_config(&dir) {
                         owned_sender.send(SherryConfigUpdateEvent {
                             old: (*data).clone(),
-                            new: config.clone()
+                            new: config.clone(),
                         }).unwrap();
 
                         *data = config;

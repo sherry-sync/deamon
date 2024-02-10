@@ -153,7 +153,7 @@ pub fn get_sync_events(config: &SherryConfigSourceJSON, result: DebouncedEvent, 
     // Modify(Any) - file update
     // Modify(Name(Both)) file/dir rename
     // Create(Any) - file/dir created
-    // Remove(Any) - file removed
+    // Remove(Any) - file(dir) removed
 
     let mut events = Vec::new();
 
