@@ -94,7 +94,7 @@ pub fn revalidate_sources(dir: &Path, config: &SherryConfigJSON) {
     new_config.watchers = new_config.watchers
         .iter()
         .filter(|w| {
-            if PathBuf::from(&w.local_path).exists() {
+            if PathBuf::from(&w.local_path).exists() && new_config.sources.get(w.source.as_str()).is_some() {
                 required_sources.insert(w.source.clone());
                 true
             } else { false }

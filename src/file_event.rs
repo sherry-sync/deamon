@@ -2,12 +2,14 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
+
 use notify::event::{DataChange, ModifyKind, RenameMode};
 use notify::EventKind;
-use notify_debouncer_full::DebouncedEvent;
+use notify_debouncer_full::{DebouncedEvent};
+
 use crate::config::SherryConfigSourceJSON;
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum SyncEventKind {
     Create,
     Update,
@@ -15,13 +17,13 @@ pub enum SyncEventKind {
     Delete,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum FileType {
     Dir,
     File,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SyncEvent {
     pub file_type: FileType,
     pub kind: SyncEventKind,
@@ -249,4 +251,31 @@ pub fn get_sync_events(config: &SherryConfigSourceJSON, result: DebouncedEvent, 
     }
 
     events
+}
+
+struct FileLifetime {
+    path: String,
+    events: Vec<SyncEvent>,
+    next: Option<String>,
+}
+
+pub fn optimize_events(events: &Vec<SyncEvent>) -> Vec<SyncEvent> {
+    let mut file_lifetimes: HashMap<String, FileLifetime> = HashMap::new();
+    for event in events {
+        let lifetime = file_lifetimes.entry(event.old_sync_path.clone()).or_insert(FileLifetime {
+            path: event.old_sync_path.clone(),
+            events: Vec::new(),
+            next: None,
+        });
+        lifetime.events.push(event.clone());
+
+        if event.kind == SyncEventKind::Rename {
+            lifetime.next = Some(event.sync_path.clone());
+        }
+    }
+
+    
+    
+    let new_events = Vec::new();
+    new_events
 }

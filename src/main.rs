@@ -33,15 +33,17 @@ fn resolve_config_dir(config: Option<String>) -> PathBuf {
     }
 }
 
-
-fn main() {
+#[tokio::main]
+async fn main() -> Result<(), String> {
     let args = Args::parse();
 
     let config_dir = resolve_config_dir(args.config);
 
     let app = App::new(&config_dir);
-    if app.is_err() { return; }
+    if app.is_err() { return Err("".to_string()); }
     let mut app = app.unwrap();
 
     app.listen();
+
+    Ok(())
 }
