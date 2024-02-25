@@ -1,11 +1,13 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fs;
+use std::ops::Deref;
 use std::path::PathBuf;
+use std::time::SystemTime;
 
 use notify::event::{DataChange, ModifyKind, RenameMode};
 use notify::EventKind;
-use notify_debouncer_full::{DebouncedEvent};
+use notify_debouncer_full::DebouncedEvent;
 
 use crate::config::SherryConfigSourceJSON;
 
@@ -31,15 +33,16 @@ pub struct SyncEvent {
     pub sync_path: String,
     pub old_sync_path: String,
     pub update_hash: String,
+    pub timestamp: SystemTime,
 }
 
 fn get_file_hash(path: &PathBuf) -> String {
     if path.is_dir() {
         return "".to_string();
     }
-    match fs::read_to_string(path) {
+    match fs::read(path) {
         Ok(content) => {
-            seahash::hash(content.as_bytes()).to_string()
+            seahash::hash(&content).to_string()
         }
         Err(_) => {
             "".to_string()
@@ -130,8 +133,9 @@ fn get_dir_file_events(config: &SherryConfigSourceJSON, path: &PathBuf, base: &P
             kind: kind.clone(),
             local_path: path.clone(),
             old_sync_path: sync_path.clone(),
-            update_hash: get_file_hash(&path),
+            update_hash: "".to_string(),
             sync_path,
+            timestamp: SystemTime::now(),
         });
     } else if path.is_dir() {
         match path.read_dir() {
@@ -180,6 +184,7 @@ pub fn get_sync_events(config: &SherryConfigSourceJSON, result: DebouncedEvent, 
                         local_path,
                         sync_path,
                         old_sync_path,
+                        timestamp: SystemTime::now(),
                     });
                 }
             }
@@ -194,6 +199,7 @@ pub fn get_sync_events(config: &SherryConfigSourceJSON, result: DebouncedEvent, 
                     local_path,
                     sync_path,
                     old_sync_path,
+                    timestamp: SystemTime::now(),
                 });
             }
             _ => {}
@@ -213,16 +219,18 @@ pub fn get_sync_events(config: &SherryConfigSourceJSON, result: DebouncedEvent, 
                         local_path,
                         sync_path,
                         old_sync_path,
+                        timestamp: SystemTime::now(),
                     })
                 }
                 _ => {
                     events.push(SyncEvent {
                         file_type: FileType::File,
                         kind: SyncEventKind::Update,
-                        update_hash: get_file_hash(&local_path),
+                        update_hash: "".to_string(),
                         local_path,
                         sync_path,
                         old_sync_path,
+                        timestamp: SystemTime::now(),
                     })
                 }
             }
@@ -231,10 +239,11 @@ pub fn get_sync_events(config: &SherryConfigSourceJSON, result: DebouncedEvent, 
             events.push(SyncEvent {
                 file_type: FileType::File,
                 kind: SyncEventKind::Create,
-                update_hash: get_file_hash(&local_path),
+                update_hash: "".to_string(),
                 local_path,
                 sync_path,
                 old_sync_path,
+                timestamp: SystemTime::now(),
             })
         }
         EventKind::Remove(_) => {
@@ -245,6 +254,7 @@ pub fn get_sync_events(config: &SherryConfigSourceJSON, result: DebouncedEvent, 
                 sync_path,
                 old_sync_path,
                 update_hash: "".to_string(),
+                timestamp: SystemTime::now(),
             })
         }
         _ => {}
@@ -253,17 +263,107 @@ pub fn get_sync_events(config: &SherryConfigSourceJSON, result: DebouncedEvent, 
     events
 }
 
+#[derive(Debug, Clone)]
 struct FileLifetime {
-    path: String,
     events: Vec<SyncEvent>,
     next: Option<String>,
+}
+
+
+fn resolve_event_pair(a: &SyncEvent, b: &SyncEvent) -> Vec<SyncEvent> {
+    match a.kind {
+        SyncEventKind::Delete => {
+            vec![b.clone()]
+        }
+        SyncEventKind::Create => {
+            match b.kind {
+                SyncEventKind::Create | SyncEventKind::Update => {
+                    vec![SyncEvent {
+                        kind: SyncEventKind::Create,
+                        ..b.clone()
+                    }]
+                }
+                SyncEventKind::Delete => {
+                    vec![b.clone()]
+                }
+                SyncEventKind::Rename => {
+                    vec![SyncEvent {
+                        kind: SyncEventKind::Create,
+                        old_sync_path: b.sync_path.clone(),
+                        update_hash: a.update_hash.clone(),
+                        ..b.clone()
+                    }]
+                }
+            }
+        }
+        SyncEventKind::Update => {
+            match b.kind {
+                SyncEventKind::Create | SyncEventKind::Update => {
+                    vec![SyncEvent {
+                        kind: SyncEventKind::Update,
+                        ..b.clone()
+                    }]
+                }
+                SyncEventKind::Delete => {
+                    vec![b.clone()]
+                }
+                SyncEventKind::Rename => {
+                    vec![
+                        SyncEvent {
+                            kind: SyncEventKind::Delete,
+                            ..a.clone()
+                        },
+                        SyncEvent {
+                            kind: SyncEventKind::Create,
+                            update_hash: a.update_hash.clone(),
+                            ..b.clone()
+                        },
+                    ]
+                }
+            }
+        }
+        SyncEventKind::Rename => {
+            match b.kind {
+                SyncEventKind::Create | SyncEventKind::Update => {
+                    vec![
+                        SyncEvent {
+                            kind: SyncEventKind::Delete,
+                            sync_path: a.old_sync_path.clone(),
+                            ..a.clone()
+                        },
+                        SyncEvent {
+                            kind: SyncEventKind::Create,
+                            update_hash: a.update_hash.clone(),
+                            ..b.clone()
+                        },
+                    ]
+                }
+                SyncEventKind::Delete => {
+                    vec![SyncEvent {
+                        kind: SyncEventKind::Delete,
+                        sync_path: a.old_sync_path.clone(),
+                        ..a.clone()
+                    }, b.clone()]
+                }
+                SyncEventKind::Rename => {
+                    vec![SyncEvent {
+                        old_sync_path: a.old_sync_path.clone(),
+                        ..b.clone()
+                    }]
+                }
+            }
+        }
+    }
+}
+
+fn event_time_cmp(a: &SyncEvent, b: &SyncEvent) -> Ordering {
+    a.timestamp.cmp(&b.timestamp)
 }
 
 pub fn optimize_events(events: &Vec<SyncEvent>) -> Vec<SyncEvent> {
     let mut file_lifetimes: HashMap<String, FileLifetime> = HashMap::new();
     for event in events {
         let lifetime = file_lifetimes.entry(event.old_sync_path.clone()).or_insert(FileLifetime {
-            path: event.old_sync_path.clone(),
             events: Vec::new(),
             next: None,
         });
@@ -274,8 +374,61 @@ pub fn optimize_events(events: &Vec<SyncEvent>) -> Vec<SyncEvent> {
         }
     }
 
-    
-    
-    let new_events = Vec::new();
-    new_events
+    let mut file_keys = Vec::new();
+    for key in file_lifetimes.keys() {
+        if file_lifetimes.values().find(|e| e.next.as_ref().is_some_and(|v| v == key.deref())).is_some() {
+            file_keys.push(key.clone())
+        } else {
+            file_keys.insert(0, key.clone())
+        }
+    }
+
+    let mut new_events = Vec::new();
+
+    for key in file_keys {
+        let mut file_lifecycle_events = Vec::new();
+        let entry = file_lifetimes.remove(&key);
+        if entry.is_none() { continue; }
+        let mut entry = entry.unwrap();
+        file_lifecycle_events.extend(entry.events);
+        while entry.next.is_some() {
+            let next_entry = file_lifetimes.remove(entry.next.as_ref().unwrap());
+            if next_entry.is_none() { break; }
+            entry = next_entry.unwrap();
+            file_lifecycle_events.extend(entry.events);
+        }
+        file_lifecycle_events.sort_by(event_time_cmp);
+        let mut events_count = file_lifecycle_events.len();
+        loop {
+            let mut start_index = 0;
+            while start_index < file_lifecycle_events.len() && file_lifecycle_events.len() > 1 {
+                let new_events = resolve_event_pair(
+                    &file_lifecycle_events.remove(start_index),
+                    &file_lifecycle_events.remove(start_index),
+                );
+                let e_len = new_events.len();
+                for (i, e) in new_events.into_iter().enumerate() {
+                    file_lifecycle_events.insert(start_index + i, e);
+                }
+                if e_len > 1 {
+                    start_index += e_len - 1;
+                }
+            }
+            if file_lifecycle_events.len() >= events_count { break; }
+            events_count = file_lifecycle_events.len();
+        }
+        new_events.extend(file_lifecycle_events);
+    }
+
+    new_events.iter().map(|event| {
+        match event.kind {
+            SyncEventKind::Create | SyncEventKind::Update => {
+                SyncEvent {
+                    update_hash: get_file_hash(&event.local_path),
+                    ..event.clone()
+                }
+            }
+            _ => { event.clone() }
+        }
+    }).collect()
 }

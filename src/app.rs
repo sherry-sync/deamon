@@ -1,12 +1,11 @@
 use std::collections::HashMap;
-use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::mpsc::{channel, Receiver};
 use std::time::Duration;
 
 use chrono;
-use log::{LevelFilter, Log};
+use log::{LevelFilter};
 use log4rs::append::file::FileAppender;
 use log4rs::encode::pattern::PatternEncoder;
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
@@ -20,7 +19,7 @@ use tokio::time::Instant;
 
 use crate::{config, file_event};
 use crate::config::{revalidate_sources, SherryConfigJSON, SherryConfigSourceJSON, SherryConfigUpdateEvent, SherryConfigWatcherJSON};
-use crate::file_event::SyncEvent;
+use crate::file_event::{optimize_events, SyncEvent};
 
 fn get_source_by_path<'a>(config: &'a SherryConfigJSON, result: &DebouncedEvent) -> Option<&'a SherryConfigWatcherJSON> {
     let result_path = result.paths.first();
@@ -52,6 +51,8 @@ fn process_result(source_config: &SherryConfigSourceJSON, results: &Vec<Debounce
     }
 
     print_events("Sync Events", &events);
+    let optimized_events = optimize_events(&events);
+    print_events("Optimized Events", &optimized_events);
 }
 
 #[derive(Debug, Clone)]
