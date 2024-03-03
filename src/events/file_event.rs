@@ -10,7 +10,7 @@ use notify::event::{DataChange, ModifyKind, RenameMode};
 use notify::EventKind;
 use notify_debouncer_full::DebouncedEvent;
 
-use crate::config::{AccessRights, SherryConfigSourceJSON};
+use crate::config::SherryConfigSourceJSON;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum SyncEventKind {

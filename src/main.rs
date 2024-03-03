@@ -7,9 +7,11 @@ use path_clean::PathClean;
 
 use crate::app::App;
 
+mod events;
 mod config;
-mod file_event;
 mod app;
+mod api;
+mod logs;
 
 const CONFIG_DIR: &str = ".sherry";
 
