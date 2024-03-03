@@ -5,11 +5,12 @@ use std::ops::Deref;
 use std::path::PathBuf;
 use std::time::SystemTime;
 
+use glob::Pattern;
 use notify::event::{DataChange, ModifyKind, RenameMode};
 use notify::EventKind;
 use notify_debouncer_full::DebouncedEvent;
 
-use crate::config::SherryConfigSourceJSON;
+use crate::config::{AccessRights, SherryConfigSourceJSON};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum SyncEventKind {
@@ -33,8 +34,18 @@ pub struct SyncEvent {
     pub sync_path: String,
     pub old_sync_path: String,
     pub update_hash: String,
+    pub size: u64,
     pub timestamp: SystemTime,
 }
+
+pub fn print_events(name: &str, events: &Vec<SyncEvent>) {
+    log::info!("{name} [");
+    for event in events {
+        log::info!("  {:?}", event)
+    }
+    log::info!("]")
+}
+
 
 fn get_file_hash(path: &PathBuf) -> String {
     if path.is_dir() {
@@ -120,8 +131,21 @@ pub fn minify_results(results: &Vec<DebouncedEvent>) -> Vec<DebouncedEvent> {
     new_results
 }
 
+const PATH_SEP: &str = "/";
+
 fn get_sync_path(config: &SherryConfigSourceJSON, path: &PathBuf, base: &PathBuf) -> String {
-    format!("{}:{}", config.id, path.strip_prefix(base).unwrap().to_str().unwrap())
+    format!(
+        "{}:{}",
+        config.id,
+        path.strip_prefix(base).unwrap().iter()
+            .map(|c| c.to_os_string().into_string().unwrap())
+            .collect::<Vec<String>>()
+            .join(PATH_SEP)
+    )
+}
+
+fn get_raw_sync_path(sync_path: &String) -> String {
+    sync_path.splitn(2, ":").collect::<Vec<&str>>()[1].to_string()
 }
 
 fn get_dir_file_events(config: &SherryConfigSourceJSON, path: &PathBuf, base: &PathBuf, kind: &SyncEventKind) -> Vec<SyncEvent> {
@@ -134,6 +158,7 @@ fn get_dir_file_events(config: &SherryConfigSourceJSON, path: &PathBuf, base: &P
             local_path: path.clone(),
             old_sync_path: sync_path.clone(),
             update_hash: "".to_string(),
+            size: 0,
             sync_path,
             timestamp: SystemTime::now(),
         });
@@ -181,6 +206,7 @@ pub fn get_sync_events(config: &SherryConfigSourceJSON, result: DebouncedEvent, 
                         file_type: FileType::Dir,
                         kind: SyncEventKind::Rename,
                         update_hash: "".to_string(),
+                        size: 0,
                         local_path,
                         sync_path,
                         old_sync_path,
@@ -196,6 +222,7 @@ pub fn get_sync_events(config: &SherryConfigSourceJSON, result: DebouncedEvent, 
                     file_type: FileType::Dir,
                     kind: SyncEventKind::Delete,
                     update_hash: "".to_string(),
+                    size: 0,
                     local_path,
                     sync_path,
                     old_sync_path,
@@ -216,6 +243,7 @@ pub fn get_sync_events(config: &SherryConfigSourceJSON, result: DebouncedEvent, 
                         file_type: FileType::File,
                         kind: SyncEventKind::Rename,
                         update_hash: "".to_string(),
+                        size: 0,
                         local_path,
                         sync_path,
                         old_sync_path,
@@ -227,6 +255,7 @@ pub fn get_sync_events(config: &SherryConfigSourceJSON, result: DebouncedEvent, 
                         file_type: FileType::File,
                         kind: SyncEventKind::Update,
                         update_hash: "".to_string(),
+                        size: 0,
                         local_path,
                         sync_path,
                         old_sync_path,
@@ -240,6 +269,7 @@ pub fn get_sync_events(config: &SherryConfigSourceJSON, result: DebouncedEvent, 
                 file_type: FileType::File,
                 kind: SyncEventKind::Create,
                 update_hash: "".to_string(),
+                size: 0,
                 local_path,
                 sync_path,
                 old_sync_path,
@@ -250,10 +280,11 @@ pub fn get_sync_events(config: &SherryConfigSourceJSON, result: DebouncedEvent, 
             events.push(SyncEvent {
                 file_type: FileType::File,
                 kind: SyncEventKind::Delete,
+                update_hash: "".to_string(),
+                size: 0,
                 local_path,
                 sync_path,
                 old_sync_path,
-                update_hash: "".to_string(),
                 timestamp: SystemTime::now(),
             })
         }
@@ -291,6 +322,7 @@ fn resolve_event_pair(a: &SyncEvent, b: &SyncEvent) -> Vec<SyncEvent> {
                         kind: SyncEventKind::Create,
                         old_sync_path: b.sync_path.clone(),
                         update_hash: a.update_hash.clone(),
+                        size: a.size,
                         ..b.clone()
                     }]
                 }
@@ -316,6 +348,7 @@ fn resolve_event_pair(a: &SyncEvent, b: &SyncEvent) -> Vec<SyncEvent> {
                         SyncEvent {
                             kind: SyncEventKind::Create,
                             update_hash: a.update_hash.clone(),
+                            size: a.size,
                             ..b.clone()
                         },
                     ]
@@ -334,6 +367,7 @@ fn resolve_event_pair(a: &SyncEvent, b: &SyncEvent) -> Vec<SyncEvent> {
                         SyncEvent {
                             kind: SyncEventKind::Create,
                             update_hash: a.update_hash.clone(),
+                            size: a.size,
                             ..b.clone()
                         },
                     ]
@@ -346,10 +380,14 @@ fn resolve_event_pair(a: &SyncEvent, b: &SyncEvent) -> Vec<SyncEvent> {
                     }, b.clone()]
                 }
                 SyncEventKind::Rename => {
-                    vec![SyncEvent {
-                        old_sync_path: a.old_sync_path.clone(),
-                        ..b.clone()
-                    }]
+                    if a.old_sync_path == b.sync_path {
+                        vec![]
+                    } else {
+                        vec![SyncEvent {
+                            old_sync_path: a.old_sync_path.clone(),
+                            ..b.clone()
+                        }]
+                    }
                 }
             }
         }
@@ -401,7 +439,7 @@ pub fn optimize_events(events: &Vec<SyncEvent>) -> Vec<SyncEvent> {
         let mut events_count = file_lifecycle_events.len();
         loop {
             let mut start_index = 0;
-            while start_index < file_lifecycle_events.len() && file_lifecycle_events.len() > 1 {
+            while start_index < file_lifecycle_events.len() && file_lifecycle_events[start_index..].len() > 1 {
                 let new_events = resolve_event_pair(
                     &file_lifecycle_events.remove(start_index),
                     &file_lifecycle_events.remove(start_index),
@@ -420,15 +458,44 @@ pub fn optimize_events(events: &Vec<SyncEvent>) -> Vec<SyncEvent> {
         new_events.extend(file_lifecycle_events);
     }
 
-    new_events.iter().map(|event| {
-        match event.kind {
-            SyncEventKind::Create | SyncEventKind::Update => {
-                SyncEvent {
-                    update_hash: get_file_hash(&event.local_path),
-                    ..event.clone()
-                }
-            }
-            _ => { event.clone() }
+    new_events
+}
+
+pub fn filter_events(config: &SherryConfigSourceJSON, events: &Vec<SyncEvent>) -> Vec<SyncEvent> {
+    let globs: Vec<Pattern> = config.allowed_file_names.iter()
+        .filter_map(|s| match Pattern::new(s) {
+            Ok(m) => Some(m),
+            Err(_) => None
+        }).collect();
+
+    events.iter().filter_map(|e| {
+        if !config.allow_dir && e.sync_path.contains(PATH_SEP) {
+            return None;
         }
+
+        let raw_sync_path = get_raw_sync_path(&e.sync_path);
+
+        if !globs.is_empty() && !globs.iter().any(|p| p.matches(&raw_sync_path)) {
+            return None;
+        }
+
+        if e.kind == SyncEventKind::Delete {
+            return Some(e.clone());
+        }
+
+        let metadata = e.local_path.metadata();
+        if metadata.is_err() {
+            return None;
+        }
+        let metadata = metadata.unwrap();
+        if metadata.len() > config.max_file_size {
+            return None;
+        }
+
+        Some(SyncEvent {
+            update_hash: get_file_hash(&e.local_path),
+            size: if metadata.is_dir() { 0 } else { metadata.len() },
+            ..e.clone()
+        })
     }).collect()
 }

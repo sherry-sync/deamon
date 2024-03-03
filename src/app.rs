@@ -5,9 +5,9 @@ use std::sync::mpsc::{channel, Receiver};
 use std::time::Duration;
 
 use chrono;
-use log::{LevelFilter};
 use log4rs::append::file::FileAppender;
 use log4rs::encode::pattern::PatternEncoder;
+use log::LevelFilter;
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use notify_debouncer_full::{DebouncedEvent, Debouncer, FileIdMap, new_debouncer};
 use parking_lot::Mutex;
@@ -18,8 +18,8 @@ use tokio::sync::mpsc::Sender;
 use tokio::time::Instant;
 
 use crate::{config, file_event};
-use crate::config::{revalidate_sources, SherryConfigJSON, SherryConfigSourceJSON, SherryConfigUpdateEvent, SherryConfigWatcherJSON};
-use crate::file_event::{optimize_events, SyncEvent};
+use crate::config::{AccessRights, revalidate_sources, SherryConfigJSON, SherryConfigSourceJSON, SherryConfigUpdateEvent, SherryConfigWatcherJSON};
+use crate::file_event::{filter_events, optimize_events, print_events};
 
 fn get_source_by_path<'a>(config: &'a SherryConfigJSON, result: &DebouncedEvent) -> Option<&'a SherryConfigWatcherJSON> {
     let result_path = result.paths.first();
@@ -36,15 +36,11 @@ fn get_source_by_path<'a>(config: &'a SherryConfigJSON, result: &DebouncedEvent)
     })
 }
 
-fn print_events(name: &str, events: &Vec<SyncEvent>) {
-    log::info!("{name} [");
-    for event in events {
-        log::info!("  {:?}", event)
-    }
-    log::info!("]")
-}
-
 fn process_result(source_config: &SherryConfigSourceJSON, results: &Vec<DebouncedEvent>, base: &PathBuf) {
+    if source_config.access == AccessRights::Read {
+        return;
+    }
+
     let mut events = Vec::new();
     for result in file_event::minify_results(&results) {
         events.extend(file_event::get_sync_events(source_config, result, base));
@@ -53,6 +49,8 @@ fn process_result(source_config: &SherryConfigSourceJSON, results: &Vec<Debounce
     print_events("Sync Events", &events);
     let optimized_events = optimize_events(&events);
     print_events("Optimized Events", &optimized_events);
+    let filtered_events = filter_events(&source_config, &optimized_events);
+    print_events("Filtered Events", &filtered_events);
 }
 
 #[derive(Debug, Clone)]
@@ -74,14 +72,14 @@ fn process_debounced_events(events: Vec<HashMap<String, BasedEvent>>, config: &A
             source.events.extend(v.events);
         }
     }
-    
-    
+
+
     let config = Arc::clone(config);
     let config = config.lock();
 
     for (_, event) in result_map {
         let source = config.sources.get(&event.key);
-        if source.is_none() {
+        if source.is_none() || event.events.is_empty() {
             continue;
         }
 
@@ -229,6 +227,7 @@ impl App {
 
     pub fn new(config_dir: &PathBuf) -> Result<App, ()> {
         println!("Using configuration from: {:?}", config_dir);
+        println!("Using recommended watcher: {:?}", RecommendedWatcher::kind());
 
         if config::initialize_config_dir(config_dir).is_err() {
             println!("Unable to initialize configuration, maybe access is denied");

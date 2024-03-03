@@ -13,7 +13,7 @@ use serde_diff::SerdeDiff;
 
 const CONFIG_FILE: &str = "config.json";
 
-#[derive(SerdeDiff, Serialize, Deserialize, Copy, Clone, Debug)]
+#[derive(SerdeDiff, Serialize, Deserialize, Copy, Clone, Debug, Eq, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub enum AccessRights {
     Read,
