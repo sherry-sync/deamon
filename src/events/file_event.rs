@@ -11,6 +11,7 @@ use notify::EventKind;
 use notify_debouncer_full::DebouncedEvent;
 
 use crate::config::SherryConfigSourceJSON;
+use crate::events::event_processing::BasedDebounceEvent;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum SyncEventKind {
@@ -61,18 +62,18 @@ fn get_file_hash(path: &PathBuf) -> String {
     }
 }
 
-fn result_cmp(a: &DebouncedEvent, b: &DebouncedEvent) -> Ordering {
-    a.time.cmp(&b.time)
+fn result_cmp(a: &BasedDebounceEvent, b: &BasedDebounceEvent) -> Ordering {
+    a.event.time.cmp(&b.event.time)
 }
 
-pub fn minify_results(results: &Vec<DebouncedEvent>) -> Vec<DebouncedEvent> {
+pub fn minify_results(results: &Vec<BasedDebounceEvent>) -> Vec<BasedDebounceEvent> {
     let mut results = results.clone();
     results.sort_by(result_cmp);
 
     let mut new_results = Vec::new();
     let mut remove_results = HashMap::new();
     for (i, result) in results.iter().enumerate() {
-        match result.kind {
+        match result.event.kind {
             EventKind::Modify(modify_kind) => {
                 match modify_kind {
                     ModifyKind::Name(mode) => {
@@ -80,15 +81,18 @@ pub fn minify_results(results: &Vec<DebouncedEvent>) -> Vec<DebouncedEvent> {
                             RenameMode::From => {
                                 let to = results.get(i + 1);
                                 if to.is_some() {
-                                    let to = to.unwrap();
-                                    let from = result;
-                                    new_results.push(DebouncedEvent {
-                                        event: notify::Event {
-                                            kind: EventKind::Modify(ModifyKind::Name(RenameMode::Both)),
-                                            paths: vec![from.paths.first().unwrap().clone(), to.paths.first().unwrap().clone()],
-                                            attrs: to.attrs.clone(),
+                                    let to = &to.unwrap().event;
+                                    let from = &result.event;
+                                    new_results.push(BasedDebounceEvent {
+                                        event: DebouncedEvent {
+                                            event: notify::Event {
+                                                kind: EventKind::Modify(ModifyKind::Name(RenameMode::Both)),
+                                                paths: vec![from.paths.first().unwrap().clone(), to.paths.first().unwrap().clone()],
+                                                attrs: to.attrs.clone(),
+                                            },
+                                            time: to.time,
                                         },
-                                        time: to.time,
+                                        base: result.base.clone(),
                                     })
                                 }
                             }
@@ -103,22 +107,26 @@ pub fn minify_results(results: &Vec<DebouncedEvent>) -> Vec<DebouncedEvent> {
                     }
                 }
                 // If Modify event go after Remove, the remove is lie, so we skipping it
-                remove_results.remove(result.paths.last().unwrap());
+                remove_results.remove(result.event.paths.last().unwrap());
             }
             EventKind::Remove(_) => {
-                remove_results.insert(result.paths.first().unwrap(), result.clone());
+                remove_results.insert(result.event.paths.first().unwrap(), result.clone());
             }
             EventKind::Create(_) => {
-                if remove_results.get(result.paths.first().unwrap()).is_none() {
+                if remove_results.get(result.event.paths.first().unwrap()).is_none() {
                     new_results.push(result.clone())
                 } else {
-                    new_results.push(DebouncedEvent {
-                        event: notify::Event {
-                            kind: EventKind::Modify(ModifyKind::Data(DataChange::Any)),
-                            paths: result.paths.clone(),
-                            attrs: result.attrs.clone(),
+                    let result_event = &result.event;
+                    new_results.push(BasedDebounceEvent {
+                        event: DebouncedEvent {
+                            event: notify::Event {
+                                kind: EventKind::Modify(ModifyKind::Data(DataChange::Any)),
+                                paths: result_event.paths.clone(),
+                                attrs: result_event.attrs.clone(),
+                            },
+                            time: result_event.time.clone(),
                         },
-                        time: result.time.clone(),
+                        base: result.base.clone(),
                     })
                 }
             }
@@ -180,12 +188,15 @@ fn get_dir_file_events(config: &SherryConfigSourceJSON, path: &PathBuf, base: &P
     events
 }
 
-pub fn get_sync_events(config: &SherryConfigSourceJSON, result: DebouncedEvent, base: &PathBuf) -> Vec<SyncEvent> {
+pub fn get_sync_events(config: &SherryConfigSourceJSON, result: BasedDebounceEvent) -> Vec<SyncEvent> {
     // Modify(Any) - file update
     // Modify(Name(Both)) file/dir rename
     // Create(Any) - file/dir created
     // Remove(Any) - file(dir) removed
 
+    let base = &result.base;
+    let result = result.event;
+    
     let mut events = Vec::new();
 
 

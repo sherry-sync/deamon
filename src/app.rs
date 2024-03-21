@@ -7,11 +7,10 @@ use std::time::Duration;
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use notify_debouncer_full::{DebouncedEvent, Debouncer, FileIdMap, new_debouncer};
 use parking_lot::Mutex;
-use tokio::runtime::Handle;
 
 use crate::config;
 use crate::config::{revalidate_sources, SherryConfigJSON, SherryConfigUpdateEvent, SherryConfigWatcherJSON};
-use crate::events::event_processing::{BasedEvent, spawn_debounced_sender};
+use crate::events::event_processing::{BasedDebounceEvent, EventProcessingDebounce};
 use crate::logs::initialize_logs;
 
 fn get_source_by_path<'a>(config: &'a SherryConfigJSON, result: &DebouncedEvent) -> Option<&'a SherryConfigWatcherJSON> {
@@ -42,12 +41,11 @@ impl App {
     fn initialize_watchers(&mut self) -> Debouncer<RecommendedWatcher, FileIdMap> {
         let main_watcher_config = Arc::clone(&self.config);
         let config_path = self.config_path.clone();
-        let tx = spawn_debounced_sender(&self.config);
-        let rt = Handle::current();
+        let mut event_processing_debounce_map = HashMap::new();
+        let rt = tokio::runtime::Handle::current();
         let mut debouncer = new_debouncer(Duration::from_millis(200), None, move |results| {
             if let Ok(results) = results {
                 let config = main_watcher_config.lock();
-                let mut source_map: HashMap<String, BasedEvent> = HashMap::new();
                 let mut should_revalidate = false;
 
                 for result in results {
@@ -62,26 +60,27 @@ impl App {
                         should_revalidate = true;
                         continue;
                     }
-                    let source = config.sources.get(watcher.source.as_str());
+                    let source_id = watcher.source.clone();
+                    let source = config.sources.get(source_id.as_str());
                     if source.is_none() {
                         should_revalidate = true;
                         continue;
                     }
 
-                    let source_results = source_map.entry(watcher.source.clone()).or_insert(BasedEvent {
-                        events: Vec::new(),
-                        base: local_path,
-                        key: watcher.source.clone(),
-                    });
-                    source_results.events.push(result);
+                    let debounce = event_processing_debounce_map
+                        .entry(source_id.clone())
+                        .or_insert(EventProcessingDebounce::new(&rt, &main_watcher_config, &source_id));
+                    debounce.send(BasedDebounceEvent {
+                        event: result,
+                        base: local_path
+                    })
                 }
 
-                let tx = tx.clone();
-                rt.spawn(async move {
-                    if let Err(e) = tx.send(source_map).await {
-                        println!("Error sending event result: {:?}", e);
+                for source in event_processing_debounce_map.keys().cloned().collect::<Vec<String>>() {
+                    if !{ event_processing_debounce_map.get(&source).unwrap().is_running() } {
+                        event_processing_debounce_map.remove(&source);
                     }
-                });
+                }
 
                 if should_revalidate {
                     revalidate_sources(&config_path, &config);
