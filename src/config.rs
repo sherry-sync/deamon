@@ -20,7 +20,7 @@ pub enum AccessRights {
     Write,
 }
 
-#[derive(SerdeDiff, Serialize, Deserialize, Debug, Clone)]
+#[derive(SerdeDiff, Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct SherryConfigSourceJSON {
     pub id: String,
@@ -32,25 +32,20 @@ pub struct SherryConfigSourceJSON {
     pub allowed_file_types: Vec<String>,
 }
 
-#[derive(SerdeDiff, Serialize, Deserialize, Debug, Clone)]
+#[derive(SerdeDiff, Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct SherryConfigWatcherJSON {
-    pub source: String,
+    pub source_id: String,
     pub local_path: String,
+    pub hashes_id: String,
 }
 
-#[derive(SerdeDiff, Serialize, Deserialize, Debug, Clone)]
+#[derive(SerdeDiff, Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct SherryConfigJSON {
     pub sources: HashMap<String, SherryConfigSourceJSON>,
     pub watchers: Vec<SherryConfigWatcherJSON>,
     pub webhooks: Vec<String>,
-}
-
-impl SherryConfigJSON {
-    pub fn clone(&self) -> SherryConfigJSON {
-        serde_json::from_str(serde_json::to_string(self).unwrap().as_str()).unwrap()
-    }
 }
 
 pub struct SherryConfigUpdateEvent {
@@ -88,14 +83,15 @@ pub fn write_config(dir: &Path, config: &SherryConfigJSON) -> Result<(), ()> {
     }
 }
 
-pub fn revalidate_sources(dir: &Path, config: &SherryConfigJSON) {
-    let mut new_config = config.clone();
+pub fn revalidate_sources(dir: &Path, config: &SherryConfigJSON) -> bool {
+    let old_config = config.clone();
+    let mut new_config = old_config.clone();
     let mut required_sources = HashSet::new();
     new_config.watchers = new_config.watchers
         .iter()
         .filter(|w| {
-            if PathBuf::from(&w.local_path).exists() && new_config.sources.get(w.source.as_str()).is_some() {
-                required_sources.insert(w.source.clone());
+            if PathBuf::from(&w.local_path).exists() && new_config.sources.get(w.source_id.as_str()).is_some() {
+                required_sources.insert(w.source_id.clone());
                 true
             } else { false }
         })
@@ -109,7 +105,11 @@ pub fn revalidate_sources(dir: &Path, config: &SherryConfigJSON) {
             acc
         });
 
-    match write_config(dir, &new_config) { _ => {} }
+    if old_config != new_config {
+        write_config(dir, &new_config).is_ok()
+    } else {
+        false
+    }
 }
 
 pub fn read_config(dir: &Path) -> Result<SherryConfigJSON, String> {
@@ -131,7 +131,7 @@ pub fn read_config(dir: &Path) -> Result<SherryConfigJSON, String> {
 }
 
 
-pub fn initialize_config_dir(dir: &PathBuf) -> Result<(), ()> {
+pub fn initialize_config_dir(dir: &PathBuf) -> Result<SherryConfigJSON, ()> {
     if !dir.exists() && fs::create_dir_all(dir).is_err() {
         return Err(());
     }
@@ -151,7 +151,38 @@ pub fn initialize_config_dir(dir: &PathBuf) -> Result<(), ()> {
         return Err(());
     }
 
-    Ok(())
+    Ok(sources.unwrap())
+}
+
+#[derive(Debug, Clone)]
+pub struct SherryConfig {
+    data: Arc<Mutex<SherryConfigJSON>>,
+    dir: PathBuf,
+}
+
+impl SherryConfig {
+    pub fn new(dir: &PathBuf) -> Result<SherryConfig, ()> {
+        let data = initialize_config_dir(dir);
+        match data {
+            Err(e) => Err(e),
+            Ok(data) => Ok(SherryConfig {
+                data: Arc::new(Mutex::new(data)),
+                dir: dir.clone(),
+            })
+        }
+    }
+    pub fn get(&self) -> SherryConfigJSON {
+        self.data.lock().clone()
+    }
+    pub fn set(&self, new_value: &SherryConfigJSON) {
+        write_config(&self.dir, &new_value).unwrap()
+    }
+    pub fn revalidate(&self) {
+        revalidate_sources(&self.dir, &self.get());
+    }
+    pub fn listen(&self) {
+        
+    }
 }
 
 pub fn get_config_watch_cb(dir: PathBuf, config_mutex: Arc<Mutex<SherryConfigJSON>>, sender: Sender<SherryConfigUpdateEvent>) -> impl Fn(DebounceEventResult) {
@@ -167,15 +198,16 @@ pub fn get_config_watch_cb(dir: PathBuf, config_mutex: Arc<Mutex<SherryConfigJSO
         for event in &event {
             for path in &event.paths {
                 if config_dir.eq(path) {
-                    let mut data = config_mutex.lock();
-                    if let Ok(config) = read_config(&dir) {
-                        owned_sender.send(SherryConfigUpdateEvent {
-                            old: (*data).clone(),
-                            new: config.clone(),
-                        }).unwrap();
+                    if let Ok(new_config) = read_config(&dir) {
+                        let old_config = (*config_mutex.lock()).clone();
 
-                        *data = config;
-                        println!("Config updated {:?}", *data);
+                        if new_config != old_config {
+                            *config_mutex.lock() = new_config.clone();
+                            owned_sender.send(SherryConfigUpdateEvent {
+                                old: old_config,
+                                new: new_config,
+                            }).unwrap();
+                        }
                     }
                 }
             }

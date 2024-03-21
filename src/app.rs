@@ -37,6 +37,28 @@ pub struct App {
     config_debounce: Debouncer<RecommendedWatcher, FileIdMap>,
 }
 
+fn cleanup_old_config(config: &SherryConfigJSON, watcher: &mut RecommendedWatcher) {
+    for watcher_path in config.watchers.iter() {
+        watcher.unwatch(Path::new(&watcher_path.local_path)).unwrap();
+    }
+}
+
+fn apply_config_update(config_path: &PathBuf, config: &SherryConfigJSON, watcher: &mut RecommendedWatcher) {
+    if revalidate_sources(config_path, config) {
+        return;
+    }
+
+    for watcher_path in config.watchers.iter() {
+        let path = Path::new(&watcher_path.local_path);
+        if !path.exists() {
+            if revalidate_sources(config_path, config) {
+                break; // Config watcher will reset watchers, so don't need to set them here
+            }
+        }
+        watcher.watch(path, RecursiveMode::Recursive).unwrap();
+    }
+}
+
 impl App {
     fn initialize_watchers(&mut self) -> Debouncer<RecommendedWatcher, FileIdMap> {
         let main_watcher_config = Arc::clone(&self.config);
@@ -60,7 +82,7 @@ impl App {
                         should_revalidate = true;
                         continue;
                     }
-                    let source_id = watcher.source.clone();
+                    let source_id = watcher.source_id.clone();
                     let source = config.sources.get(source_id.as_str());
                     if source.is_none() {
                         should_revalidate = true;
@@ -72,7 +94,8 @@ impl App {
                         .or_insert(EventProcessingDebounce::new(&rt, &main_watcher_config, &source_id));
                     debounce.send(BasedDebounceEvent {
                         event: result,
-                        base: local_path
+                        base: local_path,
+                        hash_id: watcher.hashes_id.clone(),
                     })
                 }
 
@@ -88,17 +111,9 @@ impl App {
             }
         }).unwrap();
 
-        let watcher = debouncer.watcher();
         {
-            let config = self.config.lock();
-            for watcher_path in config.watchers.iter() {
-                let path = Path::new(&watcher_path.local_path);
-                if !path.exists() {
-                    revalidate_sources(&self.config_path, &config);
-                    break; // Config watcher will reset watchers, so don't need to set them here
-                }
-                watcher.watch(path, RecursiveMode::Recursive).unwrap();
-            }
+            let watcher = debouncer.watcher();
+            apply_config_update(&self.config_path, &self.config.lock(), watcher);
         }
 
         debouncer
@@ -147,17 +162,9 @@ impl App {
         let watcher = debounce.watcher();
 
         for update in self.config_update_rx.iter() {
-            for watcher_path in update.old.watchers.iter() {
-                watcher.unwatch(Path::new(&watcher_path.local_path)).unwrap();
-            }
-            for watcher_path in update.new.watchers.iter() {
-                let path = Path::new(&watcher_path.local_path);
-                if !path.exists() {
-                    revalidate_sources(&self.config_path, &update.new);
-                    break; // No need to continue, we will return here after config revalidation
-                }
-                watcher.watch(path, RecursiveMode::Recursive).unwrap();
-            }
+            log::info!("Config updated {:?}", &update.new);
+            cleanup_old_config(&update.old, watcher);
+            apply_config_update(&self.config_path, &self.config.lock(), watcher);
         }
     }
 }
