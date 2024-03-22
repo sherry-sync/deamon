@@ -93,6 +93,7 @@ pub fn minify_results(results: &Vec<BasedDebounceEvent>) -> Vec<BasedDebounceEve
                                             time: to.time,
                                         },
                                         base: result.base.clone(),
+                                        hash_id: result.hash_id.clone(),
                                     })
                                 }
                             }
@@ -127,6 +128,7 @@ pub fn minify_results(results: &Vec<BasedDebounceEvent>) -> Vec<BasedDebounceEve
                             time: result_event.time.clone(),
                         },
                         base: result.base.clone(),
+                        hash_id: result.hash_id.clone(),
                     })
                 }
             }
@@ -196,7 +198,7 @@ pub fn get_sync_events(config: &SherryConfigSourceJSON, result: BasedDebounceEve
 
     let base = &result.base;
     let result = result.event;
-    
+
     let mut events = Vec::new();
 
 

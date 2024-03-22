@@ -46,7 +46,7 @@ async fn main() -> Result<(), String> {
     if app.is_err() { return Err("".to_string()); }
     let mut app = app.unwrap();
 
-    app.listen();
+    app.listen().await;
 
     Ok(())
 }

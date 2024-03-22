@@ -1,77 +1,54 @@
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::mpsc::{channel, Receiver};
 use std::time::Duration;
 
-use notify::{RecommendedWatcher, RecursiveMode, Watcher};
-use notify_debouncer_full::{DebouncedEvent, Debouncer, FileIdMap, new_debouncer};
+use notify::{RecommendedWatcher, Watcher};
+use notify_debouncer_full::{DebounceEventResult, new_debouncer};
 use parking_lot::Mutex;
 
-use crate::config;
-use crate::config::{revalidate_sources, SherryConfigJSON, SherryConfigUpdateEvent, SherryConfigWatcherJSON};
+use crate::config::{get_source_by_path, SherryConfig};
 use crate::events::event_processing::{BasedDebounceEvent, EventProcessingDebounce};
 use crate::logs::initialize_logs;
 
-fn get_source_by_path<'a>(config: &'a SherryConfigJSON, result: &DebouncedEvent) -> Option<&'a SherryConfigWatcherJSON> {
-    let result_path = result.paths.first();
-    if result_path.is_none() {
-        return None;
-    }
-    let result_path = result_path.unwrap();
-
-    config.watchers.iter().find_map(|w| {
-        if result_path.starts_with(&w.local_path) {
-            return Some(w);
-        }
-        return None;
-    })
-}
-
 pub struct App {
-    config_path: PathBuf,
-    config: Arc<Mutex<SherryConfigJSON>>,
-    config_update_rx: Receiver<SherryConfigUpdateEvent>,
-
-    #[allow(dead_code)] // This values should be saved to avoid it's destroying
-    config_debounce: Debouncer<RecommendedWatcher, FileIdMap>,
-}
-
-fn cleanup_old_config(config: &SherryConfigJSON, watcher: &mut RecommendedWatcher) {
-    for watcher_path in config.watchers.iter() {
-        watcher.unwatch(Path::new(&watcher_path.local_path)).unwrap();
-    }
-}
-
-fn apply_config_update(config_path: &PathBuf, config: &SherryConfigJSON, watcher: &mut RecommendedWatcher) {
-    if revalidate_sources(config_path, config) {
-        return;
-    }
-
-    for watcher_path in config.watchers.iter() {
-        let path = Path::new(&watcher_path.local_path);
-        if !path.exists() {
-            if revalidate_sources(config_path, config) {
-                break; // Config watcher will reset watchers, so don't need to set them here
-            }
-        }
-        watcher.watch(path, RecursiveMode::Recursive).unwrap();
-    }
+    config: Arc<Mutex<SherryConfig>>,
 }
 
 impl App {
-    fn initialize_watchers(&mut self) -> Debouncer<RecommendedWatcher, FileIdMap> {
+    pub fn new(config_dir: &PathBuf) -> Result<App, ()> {
+        println!("Using configuration from: {:?}", config_dir);
+        println!("Using recommended watcher: {:?}", RecommendedWatcher::kind());
+
+        let config = SherryConfig::new(config_dir);
+
+        if config.is_err() {
+            println!("Unable to initialize configuration, maybe access is denied");
+            return Err(());
+        }
+
+        let config = Arc::new(Mutex::new(config.unwrap()));
+
+        initialize_logs(config_dir);
+
+        Ok(App { config })
+    }
+
+    pub async fn listen(&mut self) {
         let main_watcher_config = Arc::clone(&self.config);
-        let config_path = self.config_path.clone();
         let mut event_processing_debounce_map = HashMap::new();
         let rt = tokio::runtime::Handle::current();
-        let mut debouncer = new_debouncer(Duration::from_millis(200), None, move |results| {
+        let mut debouncer = new_debouncer(Duration::from_millis(200), None, move |results: DebounceEventResult| {
             if let Ok(results) = results {
-                let config = main_watcher_config.lock();
+                let config = main_watcher_config.lock().get();
                 let mut should_revalidate = false;
 
                 for result in results {
-                    let source = get_source_by_path(&config, &result);
+                    let source_path = result.paths.first();
+                    if source_path.is_none() {
+                        continue;
+                    }
+                    let source = get_source_by_path(&config, &source_path.unwrap());
                     if source.is_none() {
                         continue;
                     }
@@ -106,65 +83,23 @@ impl App {
                 }
 
                 if should_revalidate {
-                    revalidate_sources(&config_path, &config);
+                    main_watcher_config.lock().revalidate();
                 }
             }
         }).unwrap();
 
         {
             let watcher = debouncer.watcher();
-            apply_config_update(&self.config_path, &self.config.lock(), watcher);
+            self.config.lock().apply_update(watcher)
         }
 
-        debouncer
-    }
+        let watcher = debouncer.watcher();
 
-    fn initialize_config_watcher(config_dir: &PathBuf) -> (Arc<Mutex<SherryConfigJSON>>, Debouncer<RecommendedWatcher, FileIdMap>, Receiver<SherryConfigUpdateEvent>) {
-        let shared_config: Arc<Mutex<SherryConfigJSON>> = Arc::new(Mutex::new(config::read_config(&config_dir).unwrap()));
+        let (dir, receiver) = {
+            let config = self.config.lock();
+            (config.get_path(), config.get_receiver())
+        };
 
-        let (tx, rx) = channel::<SherryConfigUpdateEvent>();
-
-        let mut config_debounce = new_debouncer(
-            Duration::from_millis(200),
-            None,
-            config::get_config_watch_cb(config_dir.clone(), Arc::clone(&shared_config), tx),
-        ).unwrap();
-
-        config_debounce.watcher().watch(config_dir.as_path(), RecursiveMode::Recursive).unwrap();
-
-        (shared_config, config_debounce, rx)
-    }
-
-    pub fn new(config_dir: &PathBuf) -> Result<App, ()> {
-        println!("Using configuration from: {:?}", config_dir);
-        println!("Using recommended watcher: {:?}", RecommendedWatcher::kind());
-
-        if config::initialize_config_dir(config_dir).is_err() {
-            println!("Unable to initialize configuration, maybe access is denied");
-            return Err(());
-        }
-
-        let (shared_config, config_debounce, rx) = App::initialize_config_watcher(config_dir);
-
-        initialize_logs(config_dir);
-
-        Ok(App {
-            config_path: config_dir.clone(),
-            config: shared_config,
-            config_update_rx: rx,
-
-            config_debounce,
-        })
-    }
-
-    pub fn listen(&mut self) {
-        let mut debounce = self.initialize_watchers();
-        let watcher = debounce.watcher();
-
-        for update in self.config_update_rx.iter() {
-            log::info!("Config updated {:?}", &update.new);
-            cleanup_old_config(&update.old, watcher);
-            apply_config_update(&self.config_path, &self.config.lock(), watcher);
-        }
+        SherryConfig::listen(&dir, &receiver.lock(), watcher);
     }
 }
