@@ -13,6 +13,7 @@ mod app;
 mod api;
 mod logs;
 mod hash;
+mod auth;
 
 const CONFIG_DIR: &str = ".sherry";
 

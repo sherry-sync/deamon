@@ -13,6 +13,8 @@ use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use serde_diff::SerdeDiff;
 
+use crate::auth::{AUTH_FILE, initialize_auth_config, read_auth_config, SherryAuthorizationConfigJSON};
+
 const CONFIG_FILE: &str = "config.json";
 
 #[derive(SerdeDiff, Serialize, Deserialize, Copy, Clone, Debug, Eq, PartialEq)]
@@ -48,11 +50,6 @@ pub struct SherryConfigJSON {
     pub sources: HashMap<String, SherryConfigSourceJSON>,
     pub watchers: Vec<SherryConfigWatcherJSON>,
     pub webhooks: Vec<String>,
-}
-
-pub struct SherryConfigUpdateEvent {
-    pub old: SherryConfigJSON,
-    pub new: SherryConfigJSON,
 }
 
 
@@ -132,7 +129,7 @@ fn read_config(dir: &Path) -> Result<SherryConfigJSON, String> {
     Ok(sources.unwrap())
 }
 
-fn initialize_config_dir(dir: &PathBuf) -> Result<SherryConfigJSON, ()> {
+fn initialize_config_dir(dir: &PathBuf) -> Result<(SherryConfigJSON, SherryAuthorizationConfigJSON), ()> {
     if !dir.exists() && fs::create_dir_all(dir).is_err() {
         return Err(());
     }
@@ -152,7 +149,13 @@ fn initialize_config_dir(dir: &PathBuf) -> Result<SherryConfigJSON, ()> {
         return Err(());
     }
 
-    Ok(sources.unwrap())
+    let auth = initialize_auth_config(&dir);
+    if auth.is_err() {
+        println!("Error: {}", sources.err().unwrap());
+        return Err(());
+    }
+
+    Ok((sources.unwrap(), auth.unwrap()))
 }
 
 
@@ -178,9 +181,22 @@ fn apply_config_update(config_path: &PathBuf, config: &SherryConfigJSON, watcher
     }
 }
 
+#[derive(SerdeDiff, Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
+pub struct SherryConfigUpdateData {
+    data: SherryConfigJSON,
+    auth: SherryAuthorizationConfigJSON,
+}
+
+#[derive(SerdeDiff, Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
+pub struct SherryConfigUpdateEvent {
+    pub old: SherryConfigUpdateData,
+    pub new: SherryConfigUpdateData,
+}
+
 #[derive(Debug)]
 pub struct SherryConfig {
     data: Arc<Mutex<SherryConfigJSON>>,
+    auth: Arc<Mutex<SherryAuthorizationConfigJSON>>,
     dir: PathBuf,
     receiver: Arc<Mutex<Receiver<SherryConfigUpdateEvent>>>,
 
@@ -192,35 +208,52 @@ impl SherryConfig {
     pub fn new(dir: &PathBuf) -> Result<SherryConfig, ()> {
         let data = initialize_config_dir(dir);
         if data.is_err() { return Err(()); }
+        let (data, auth) = data.unwrap();
 
-        let data = Arc::new(Mutex::new(data.unwrap()));
+        let data = Arc::new(Mutex::new(data));
+        let auth = Arc::new(Mutex::new(auth));
         let (tx, rx) = channel::<SherryConfigUpdateEvent>();
 
         let current_config = Arc::clone(&data);
+        let current_auth = Arc::clone(&auth);
         let config_dir = dir.clone();
+
         let config_path = dir.join(CONFIG_FILE);
+        let auth_path = dir.join(AUTH_FILE);
+
         let mut debouncer = new_debouncer(
             Duration::from_millis(200),
             None,
             move |res: DebounceEventResult| {
                 if res.is_err() { return; }
                 let event = res.unwrap();
+                let old = SherryConfigUpdateData {
+                    data: (*current_config.lock()).clone(),
+                    auth: (*current_auth.lock()).clone(),
+                };
+                let mut new = SherryConfigUpdateData {
+                    data: (*current_config.lock()).clone(),
+                    auth: (*current_auth.lock()).clone(),
+                };
                 for event in &event {
                     for path in &event.paths {
                         if config_path.eq(path) {
                             if let Ok(new_config) = read_config(&config_dir) {
-                                let old_config = (*current_config.lock()).clone();
-
-                                if new_config != old_config {
-                                    *current_config.lock() = new_config.clone();
-                                    tx.send(SherryConfigUpdateEvent {
-                                        old: old_config,
-                                        new: new_config,
-                                    }).unwrap();
-                                }
+                                new.data = new_config;
+                            }
+                        }
+                        if auth_path.eq(path) {
+                            if let Ok(new_config) = read_auth_config(&config_dir) {
+                                new.auth = new_config;
                             }
                         }
                     }
+                }
+
+                if old != new {
+                    *current_config.lock() = new.data.clone();
+                    *current_auth.lock() = new.auth.clone();
+                    tx.send(SherryConfigUpdateEvent { old, new }).unwrap();
                 }
             },
         ).unwrap();
@@ -229,6 +262,7 @@ impl SherryConfig {
 
         Ok(SherryConfig {
             data,
+            auth,
             dir: dir.clone(),
             receiver: Arc::new(Mutex::new(rx)),
             debouncer,
@@ -255,8 +289,8 @@ impl SherryConfig {
     pub fn listen(dir: &PathBuf, receiver: &Receiver<SherryConfigUpdateEvent>, watcher: &mut RecommendedWatcher) {
         for update in receiver.iter() {
             log::info!("Config updated {:?}", &update.new);
-            cleanup_old_config(&update.old, watcher);
-            apply_config_update(dir, &update.new, watcher);
+            cleanup_old_config(&update.old.data, watcher);
+            apply_config_update(dir, &update.new.data, watcher);
         }
     }
 }
