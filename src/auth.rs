@@ -18,12 +18,14 @@ pub struct Credentials {
 
 #[derive(SerdeDiff, Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
 pub struct SherryAuthorizationConfigJSON {
-    //                 tag => credentials
+    default: String,
+    // user_id => credentials
     records: HashMap<String, Credentials>,
 }
 
 fn get_default_auth_config() -> SherryAuthorizationConfigJSON {
     SherryAuthorizationConfigJSON {
+        default: "".to_string(),
         records: HashMap::new()
     }
 }
@@ -79,7 +81,7 @@ pub fn initialize_auth_config(dir: &PathBuf) -> Result<SherryAuthorizationConfig
 
     let sources: serde_json::Result<SherryAuthorizationConfigJSON> = serde_json::from_str(&content.unwrap());
     if sources.is_err() {
-        println!("Error: {}", sources.err().unwrap());
+        println!("Error Auth: {}", sources.err().unwrap());
         return Err(());
     }
 

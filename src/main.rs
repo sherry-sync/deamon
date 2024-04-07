@@ -44,7 +44,7 @@ async fn main() -> Result<(), String> {
     let config_dir = resolve_config_dir(args.config);
 
     let app = App::new(&config_dir);
-    if app.is_err() { return Err("".to_string()); }
+    if app.is_err() { return Err("Demon start failed".to_string()); }
     let mut app = app.unwrap();
 
     app.listen().await;

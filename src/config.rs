@@ -42,6 +42,7 @@ pub struct SherryConfigWatcherJSON {
     pub source_id: String,
     pub local_path: String,
     pub hashes_id: String,
+    pub user_id: String,
 }
 
 #[derive(SerdeDiff, Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
@@ -145,13 +146,12 @@ fn initialize_config_dir(dir: &PathBuf) -> Result<(SherryConfigJSON, SherryAutho
 
     let sources: serde_json::Result<SherryConfigJSON> = serde_json::from_str(&content.unwrap());
     if sources.is_err() {
-        println!("Error: {}", sources.err().unwrap());
+        println!("Error Config: {}", sources.err().unwrap());
         return Err(());
     }
 
     let auth = initialize_auth_config(&dir);
     if auth.is_err() {
-        println!("Error: {}", sources.err().unwrap());
         return Err(());
     }
 
