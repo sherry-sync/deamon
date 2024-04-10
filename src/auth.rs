@@ -11,8 +11,10 @@ pub const AUTH_FILE: &str = "auth.json";
 
 #[derive(SerdeDiff, Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
 pub struct Credentials {
+    id: String,
     email: String,
-    nickname: String,
+    username: String,
+    access_token: String,
     refresh_token: String,
 }
 

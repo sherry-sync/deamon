@@ -3,6 +3,7 @@ use std::fs;
 use std::fs::OpenOptions;
 use std::io::{Read, Seek};
 use std::path::{Path, PathBuf};
+use std::string::ToString;
 use std::sync::Arc;
 use std::sync::mpsc::{channel, Receiver};
 use std::time::Duration;
@@ -16,6 +17,7 @@ use serde_diff::SerdeDiff;
 use crate::auth::{AUTH_FILE, initialize_auth_config, read_auth_config, SherryAuthorizationConfigJSON};
 
 const CONFIG_FILE: &str = "config.json";
+const DEFAULT_API_URL: &str = "http://localhost:3000";
 
 #[derive(SerdeDiff, Serialize, Deserialize, Copy, Clone, Debug, Eq, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -48,6 +50,7 @@ pub struct SherryConfigWatcherJSON {
 #[derive(SerdeDiff, Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct SherryConfigJSON {
+    pub api_url: String,
     pub sources: HashMap<String, SherryConfigSourceJSON>,
     pub watchers: Vec<SherryConfigWatcherJSON>,
     pub webhooks: Vec<String>,
@@ -56,6 +59,7 @@ pub struct SherryConfigJSON {
 
 fn get_default_config() -> SherryConfigJSON {
     SherryConfigJSON {
+        api_url: DEFAULT_API_URL.to_string(),
         sources: HashMap::new(),
         watchers: Vec::new(),
         webhooks: Vec::new(),
