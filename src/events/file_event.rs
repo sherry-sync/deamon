@@ -179,14 +179,14 @@ fn get_dir_file_events(config: &SherryConfigSourceJSON, path: &PathBuf, base: &P
     events
 }
 
-pub fn get_sync_events(config: &SherryConfigSourceJSON, result: BasedDebounceEvent) -> Vec<SyncEvent> {
+pub fn get_sync_events(config: &SherryConfigSourceJSON, result: &BasedDebounceEvent) -> Vec<SyncEvent> {
     // Modify(Any) - file update
     // Modify(Name(Both)) file/dir rename
     // Create(Any) - file/dir created
     // Remove(Any) - file(dir) removed
 
     let base = &result.base;
-    let result = result.event;
+    let result = &result.event;
 
     let mut events = Vec::new();
 

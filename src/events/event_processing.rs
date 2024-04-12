@@ -5,16 +5,15 @@ use std::time::Duration;
 
 use notify_debouncer_full::DebouncedEvent;
 use parking_lot::Mutex;
-use serde_diff::SerdeDiff;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::Sender;
 use tokio::time::Instant;
 
-use crate::config::{AccessRights, SherryConfig};
-use crate::events::file_event::{complete_events, filter_events, get_sync_events, minify_results, optimize_events, print_events};
+use crate::config::{AccessRights, SherryConfig, SherryConfigWatcherJSON};
+use crate::events::file_event::{complete_events, filter_events, get_sync_events, minify_results, optimize_events, SyncEvent};
 use crate::hash::get_hashes;
 
-pub fn process_result(config: Arc<Mutex<SherryConfig>>, source_id: &String, results: &Vec<BasedDebounceEvent>) {
+pub async fn process_result(config: Arc<Mutex<SherryConfig>>, source_id: &String, results: &Vec<BasedDebounceEvent>) {
     let dir = config.lock().get_path();
     let config = config.lock().get_main();
 
@@ -22,32 +21,49 @@ pub fn process_result(config: Arc<Mutex<SherryConfig>>, source_id: &String, resu
     if source.is_none() {
         return;
     }
-
     let source = source.unwrap();
+    let watchers: HashMap<String, &SherryConfigWatcherJSON> = config.watchers
+        .iter()
+        .filter_map(|e| if e.source_id.eq(source_id) { Some((e.local_path.clone(), e)) } else { None })
+        .collect();
 
     if source.access == AccessRights::Read {
         return;
     }
 
-    let mut events = Vec::new();
-    for result in minify_results(&results) {
-        events.extend(get_sync_events(source, result));
+    let events =
+        complete_events(
+            &filter_events(&source,
+                           &optimize_events(
+                               &minify_results(&results)
+                                   .iter()
+                                   .flat_map(|r| get_sync_events(&source, r))
+                                   .collect::<Vec<SyncEvent>>()
+                           ),
+            )
+        );
+
+    let mut hashes_map = HashMap::new();
+    for e in events {
+        let watcher = match watchers.get(&e.base.to_str().unwrap().to_string()) {
+            Some(watcher) => watcher,
+            None => continue,
+        };
+
+        let hashes_id = watcher.hashes_id.clone();
+        let base = e.base.clone();
+
+        let hashes = hashes_map
+            .entry(base.clone())
+            .or_insert_with(|| get_hashes(&dir, &source, &base, &hashes_id).unwrap());
+
+        match hashes.hashes.get(&e.local_path.to_str().unwrap().to_string()) {
+            None => {}
+            Some(_) => {
+                
+            }
+        }
     }
-
-    print_events("Sync Events", &events);
-    let optimized_events = optimize_events(&events);
-    print_events("Optimized Events", &optimized_events);
-    let filtered_events = filter_events(&source, &optimized_events);
-    print_events("Filtered Events", &filtered_events);
-    let complete_events = complete_events(&events);
-    print_events("Complete Events", &complete_events);
-
-    let events = complete_events;
-
-    // let mut hashes_map = HashMap::new();
-    // for e in events {
-    //     hashes_map.entry(e.base.clone()).or_insert_with(|| get_hashes(dir, source, e.sync_path));
-    // }
 }
 
 fn create_debounce(rt: &tokio::runtime::Handle, config: &Arc<Mutex<SherryConfig>>, source_id: &String, is_running: &Arc<Mutex<bool>>) -> Sender<BasedDebounceEvent> {
@@ -81,7 +97,7 @@ fn create_debounce(rt: &tokio::runtime::Handle, config: &Arc<Mutex<SherryConfig>
         }
         { *is_running.lock() = false; }
 
-        process_result(config, &source_id, &buffer);
+        process_result(config, &source_id, &buffer).await;
     });
 
     tx

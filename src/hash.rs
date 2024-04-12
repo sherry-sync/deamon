@@ -32,11 +32,11 @@ pub fn get_file_hash(path: &PathBuf) -> String {
     }
 }
 
-fn build_hashes(hashes_id: &String, source: &SherryConfigSourceJSON, local_path: &String) -> WatcherHashJSON {
+fn build_hashes(hashes_id: &String, source: &SherryConfigSourceJSON, local_path: &PathBuf) -> WatcherHashJSON {
     WatcherHashJSON {
         id: hashes_id.clone(),
         source_id: source.id.clone(),
-        local_path: local_path.clone(),
+        local_path: local_path.to_str().unwrap().to_string(),
         hashes: glob(Path::new(local_path).join("**").to_str().unwrap()).unwrap().filter_map(|v| {
             let res = v.unwrap();
             return if res.is_file() { Some((res.to_str().unwrap().to_string(), get_file_hash(&res))) } else { None };
@@ -44,6 +44,6 @@ fn build_hashes(hashes_id: &String, source: &SherryConfigSourceJSON, local_path:
     }
 }
 
-pub async fn get_hashes(dir: &Path, source: &SherryConfigSourceJSON, local_path: &String, hashes_id: &String) -> Result<WatcherHashJSON, String> {
+pub fn get_hashes(dir: &PathBuf, source: &SherryConfigSourceJSON, local_path: &PathBuf, hashes_id: &String) -> Result<WatcherHashJSON, String> {
     initialize_json_file_with(&dir.join(HASHES_DIR).join(hashes_id), &|| { build_hashes(hashes_id, source, local_path) })
 }
