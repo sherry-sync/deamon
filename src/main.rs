@@ -6,6 +6,7 @@ use home::home_dir;
 use path_clean::PathClean;
 
 use crate::app::App;
+use crate::constants::CONFIG_DIR;
 
 mod events;
 mod config;
@@ -14,8 +15,8 @@ mod api;
 mod logs;
 mod hash;
 mod auth;
-
-const CONFIG_DIR: &str = ".sherry";
+mod helpers;
+mod constants;
 
 #[derive(Parser)]
 struct Args {

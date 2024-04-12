@@ -1,7 +1,5 @@
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::fs::OpenOptions;
-use std::io::{Read, Seek};
 use std::path::{Path, PathBuf};
 use std::string::ToString;
 use std::sync::Arc;
@@ -14,10 +12,9 @@ use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use serde_diff::SerdeDiff;
 
-use crate::auth::{AUTH_FILE, initialize_auth_config, read_auth_config, SherryAuthorizationConfigJSON};
-
-const CONFIG_FILE: &str = "config.json";
-const DEFAULT_API_URL: &str = "http://localhost:3000";
+use crate::auth::{initialize_auth_config, read_auth_config, SherryAuthorizationConfigJSON, write_auth_config};
+use crate::constants::{AUTH_FILE, CONFIG_FILE, DEFAULT_API_URL};
+use crate::helpers::{initialize_json_file, read_json_file, str_err_prefix, write_json_file};
 
 #[derive(SerdeDiff, Serialize, Deserialize, Copy, Clone, Debug, Eq, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -56,35 +53,8 @@ pub struct SherryConfigJSON {
     pub webhooks: Vec<String>,
 }
 
-
-fn get_default_config() -> SherryConfigJSON {
-    SherryConfigJSON {
-        api_url: DEFAULT_API_URL.to_string(),
-        sources: HashMap::new(),
-        watchers: Vec::new(),
-        webhooks: Vec::new(),
-    }
-}
-
-fn get_config_string(dir: &Path) -> std::io::Result<String> {
-    let f = OpenOptions::new()
-        .read(true)
-        .open(dir.join(CONFIG_FILE));
-    if f.is_err() {
-        return Err(f.err().unwrap());
-    }
-    let mut f = f.unwrap();
-    let mut buf = String::new();
-    f.read_to_string(&mut buf).unwrap();
-    f.rewind().unwrap();
-    Ok(buf)
-}
-
-fn write_config(dir: &Path, config: &SherryConfigJSON) -> Result<(), ()> {
-    match fs::write(dir.join(CONFIG_FILE), serde_json::to_string_pretty(&config).unwrap()) {
-        Ok(_) => Ok(()),
-        Err(_) => Err(()),
-    }
+fn write_main_config(dir: &Path, config: &SherryConfigJSON) -> Result<(), String> {
+    write_json_file(dir.join(CONFIG_FILE), config)
 }
 
 fn revalidate_sources(dir: &Path, config: &SherryConfigJSON) -> bool {
@@ -110,56 +80,31 @@ fn revalidate_sources(dir: &Path, config: &SherryConfigJSON) -> bool {
         });
 
     if old_config != new_config {
-        write_config(dir, &new_config).is_ok()
+        write_main_config(dir, &new_config).is_ok()
     } else {
         false
     }
 }
 
-fn read_config(dir: &Path) -> Result<SherryConfigJSON, String> {
-    let content = get_config_string(dir);
-    if content.is_err() {
-        let err = content.err().unwrap().to_string();
-        println!("Error Read: {}", err);
-        return Err(err);
-    }
-
-    let sources: serde_json::Result<SherryConfigJSON> = serde_json::from_str(&content.unwrap());
-    if sources.is_err() {
-        let err = sources.err().unwrap().to_string();
-        println!("Error Parse: {}", err);
-        return Err(err);
-    }
-
-    Ok(sources.unwrap())
+fn read_main_config(dir: &Path) -> Result<SherryConfigJSON, String> {
+    read_json_file(dir.join(CONFIG_FILE))
 }
 
-fn initialize_config_dir(dir: &PathBuf) -> Result<(SherryConfigJSON, SherryAuthorizationConfigJSON), ()> {
-    if !dir.exists() && fs::create_dir_all(dir).is_err() {
-        return Err(());
+fn initialize_main_config(dir: &Path) -> Result<SherryConfigJSON, String> {
+    initialize_json_file(dir.join(CONFIG_FILE), SherryConfigJSON {
+        api_url: DEFAULT_API_URL.to_string(),
+        sources: HashMap::new(),
+        watchers: Vec::new(),
+        webhooks: Vec::new(),
+    })
+}
+
+fn initialize_config_dir(dir: &PathBuf) -> Result<(SherryConfigJSON, SherryAuthorizationConfigJSON), String> {
+    if !dir.exists() {
+        fs::create_dir_all(dir).map_err(str_err_prefix("Error Creating Config Dir"))?;
     }
 
-    let mut content = get_config_string(dir);
-    if content.is_err() {
-        if write_config(dir, &get_default_config()).is_err() {
-            return Err(());
-        } else {
-            content = get_config_string(dir);
-        }
-    }
-
-    let sources: serde_json::Result<SherryConfigJSON> = serde_json::from_str(&content.unwrap());
-    if sources.is_err() {
-        println!("Error Config: {}", sources.err().unwrap());
-        return Err(());
-    }
-
-    let auth = initialize_auth_config(&dir);
-    if auth.is_err() {
-        return Err(());
-    }
-
-    Ok((sources.unwrap(), auth.unwrap()))
+    Ok((initialize_main_config(&dir)?, initialize_auth_config(&dir)?))
 }
 
 
@@ -242,7 +187,7 @@ impl SherryConfig {
                 for event in &event {
                     for path in &event.paths {
                         if config_path.eq(path) {
-                            if let Ok(new_config) = read_config(&config_dir) {
+                            if let Ok(new_config) = read_main_config(&config_dir) {
                                 new.data = new_config;
                             }
                         }
@@ -272,7 +217,7 @@ impl SherryConfig {
             debouncer,
         })
     }
-    pub fn get(&self) -> SherryConfigJSON {
+    pub fn get_main(&self) -> SherryConfigJSON {
         self.data.lock().clone()
     }
     pub fn get_path(&self) -> PathBuf {
@@ -281,14 +226,17 @@ impl SherryConfig {
     pub fn get_receiver(&self) -> Arc<Mutex<Receiver<SherryConfigUpdateEvent>>> {
         Arc::clone(&self.receiver)
     }
-    pub fn set(&self, new_value: &SherryConfigJSON) {
-        write_config(&self.dir, &new_value).unwrap()
+    pub fn set_main(&self, new_value: &SherryConfigJSON) {
+        write_main_config(&self.dir, &new_value).unwrap()
+    }
+    pub fn set_auth(&self, new_value: &SherryAuthorizationConfigJSON) {
+        write_auth_config(&self.dir, &new_value).unwrap()
     }
     pub fn revalidate(&self) {
-        revalidate_sources(&self.dir, &self.get());
+        revalidate_sources(&self.dir, &self.get_main());
     }
     pub fn apply_update(&self, watcher: &mut RecommendedWatcher) {
-        apply_config_update(&self.dir, &self.get(), watcher)
+        apply_config_update(&self.dir, &self.get_main(), watcher)
     }
     pub fn listen(dir: &PathBuf, receiver: &Receiver<SherryConfigUpdateEvent>, watcher: &mut RecommendedWatcher) {
         for update in receiver.iter() {

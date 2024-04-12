@@ -40,7 +40,7 @@ impl App {
         let rt = tokio::runtime::Handle::current();
         let mut debouncer = new_debouncer(Duration::from_millis(200), None, move |results: DebounceEventResult| {
             if let Ok(results) = results {
-                let config = main_watcher_config.lock().get();
+                let config = main_watcher_config.lock().get_main();
                 let mut should_revalidate = false;
 
                 for result in results {

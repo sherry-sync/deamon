@@ -1,18 +1,23 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
 use notify_debouncer_full::DebouncedEvent;
 use parking_lot::Mutex;
+use serde_diff::SerdeDiff;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::Sender;
 use tokio::time::Instant;
 
 use crate::config::{AccessRights, SherryConfig};
-use crate::events::file_event::{filter_events, get_sync_events, minify_results, optimize_events, print_events};
+use crate::events::file_event::{complete_events, filter_events, get_sync_events, minify_results, optimize_events, print_events};
+use crate::hash::get_hashes;
 
 pub fn process_result(config: Arc<Mutex<SherryConfig>>, source_id: &String, results: &Vec<BasedDebounceEvent>) {
-    let config = config.lock().get();
+    let dir = config.lock().get_path();
+    let config = config.lock().get_main();
+
     let source = config.sources.get(source_id);
     if source.is_none() {
         return;
@@ -34,6 +39,15 @@ pub fn process_result(config: Arc<Mutex<SherryConfig>>, source_id: &String, resu
     print_events("Optimized Events", &optimized_events);
     let filtered_events = filter_events(&source, &optimized_events);
     print_events("Filtered Events", &filtered_events);
+    let complete_events = complete_events(&events);
+    print_events("Complete Events", &complete_events);
+
+    let events = complete_events;
+
+    // let mut hashes_map = HashMap::new();
+    // for e in events {
+    //     hashes_map.entry(e.base.clone()).or_insert_with(|| get_hashes(dir, source, e.sync_path));
+    // }
 }
 
 fn create_debounce(rt: &tokio::runtime::Handle, config: &Arc<Mutex<SherryConfig>>, source_id: &String, is_running: &Arc<Mutex<bool>>) -> Sender<BasedDebounceEvent> {

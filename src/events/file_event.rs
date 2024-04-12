@@ -12,6 +12,7 @@ use notify_debouncer_full::DebouncedEvent;
 
 use crate::config::SherryConfigSourceJSON;
 use crate::events::event_processing::BasedDebounceEvent;
+use crate::hash::get_file_hash;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum SyncEventKind {
@@ -29,6 +30,7 @@ pub enum FileType {
 
 #[derive(Debug, Clone)]
 pub struct SyncEvent {
+    pub base: PathBuf,
     pub file_type: FileType,
     pub kind: SyncEventKind,
     pub local_path: PathBuf,
@@ -47,20 +49,6 @@ pub fn print_events(name: &str, events: &Vec<SyncEvent>) {
     log::info!("]")
 }
 
-
-fn get_file_hash(path: &PathBuf) -> String {
-    if path.is_dir() {
-        return "".to_string();
-    }
-    match fs::read(path) {
-        Ok(content) => {
-            seahash::hash(&content).to_string()
-        }
-        Err(_) => {
-            "".to_string()
-        }
-    }
-}
 
 fn result_cmp(a: &BasedDebounceEvent, b: &BasedDebounceEvent) -> Ordering {
     a.event.time.cmp(&b.event.time)
@@ -163,6 +151,7 @@ fn get_dir_file_events(config: &SherryConfigSourceJSON, path: &PathBuf, base: &P
     if path.is_file() {
         let sync_path = get_sync_path(config, &path, base);
         events.push(SyncEvent {
+            base: base.clone(),
             file_type: FileType::File,
             kind: kind.clone(),
             local_path: path.clone(),
@@ -216,6 +205,7 @@ pub fn get_sync_events(config: &SherryConfigSourceJSON, result: BasedDebounceEve
             EventKind::Modify(kind) => {
                 if kind == ModifyKind::Name(RenameMode::Both) {
                     events.push(SyncEvent {
+                        base: base.clone(),
                         file_type: FileType::Dir,
                         kind: SyncEventKind::Rename,
                         update_hash: "".to_string(),
@@ -232,6 +222,7 @@ pub fn get_sync_events(config: &SherryConfigSourceJSON, result: BasedDebounceEve
             }
             EventKind::Remove(_) => {
                 events.push(SyncEvent {
+                    base: base.clone(),
                     file_type: FileType::Dir,
                     kind: SyncEventKind::Delete,
                     update_hash: "".to_string(),
@@ -253,6 +244,7 @@ pub fn get_sync_events(config: &SherryConfigSourceJSON, result: BasedDebounceEve
             match kind {
                 ModifyKind::Name(_) => {
                     events.push(SyncEvent {
+                        base: base.clone(),
                         file_type: FileType::File,
                         kind: SyncEventKind::Rename,
                         update_hash: "".to_string(),
@@ -265,6 +257,7 @@ pub fn get_sync_events(config: &SherryConfigSourceJSON, result: BasedDebounceEve
                 }
                 _ => {
                     events.push(SyncEvent {
+                        base: base.clone(),
                         file_type: FileType::File,
                         kind: SyncEventKind::Update,
                         update_hash: "".to_string(),
@@ -279,6 +272,7 @@ pub fn get_sync_events(config: &SherryConfigSourceJSON, result: BasedDebounceEve
         }
         EventKind::Create(_) => {
             events.push(SyncEvent {
+                base: base.clone(),
                 file_type: FileType::File,
                 kind: SyncEventKind::Create,
                 update_hash: "".to_string(),
@@ -291,6 +285,7 @@ pub fn get_sync_events(config: &SherryConfigSourceJSON, result: BasedDebounceEve
         }
         EventKind::Remove(_) => {
             events.push(SyncEvent {
+                base: base.clone(),
                 file_type: FileType::File,
                 kind: SyncEventKind::Delete,
                 update_hash: "".to_string(),
@@ -506,9 +501,17 @@ pub fn filter_events(config: &SherryConfigSourceJSON, events: &Vec<SyncEvent>) -
         }
 
         Some(SyncEvent {
-            update_hash: get_file_hash(&e.local_path),
             size: if metadata.is_dir() { 0 } else { metadata.len() },
             ..e.clone()
         })
+    }).collect()
+}
+
+pub fn complete_events(events: &Vec<SyncEvent>) -> Vec<SyncEvent> {
+    events.iter().map(|e| {
+        SyncEvent {
+            update_hash: get_file_hash(&e.local_path),
+            ..e.clone()
+        }
     }).collect()
 }

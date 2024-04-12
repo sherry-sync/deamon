@@ -1,13 +1,13 @@
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
+use glob::glob;
 use serde::{Deserialize, Serialize};
 use serde_diff::SerdeDiff;
-use tokio::fs;
 
 use crate::config::SherryConfigSourceJSON;
-
-const HASHES_DIR: &str = "hashes";
+use crate::constants::HASHES_DIR;
+use crate::helpers::initialize_json_file_with;
 
 #[derive(SerdeDiff, Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -18,8 +18,18 @@ pub struct WatcherHashJSON {
     pub hashes: HashMap<String, String>,
 }
 
-fn parse_hashes(content: String) -> serde_json::Result<WatcherHashJSON> {
-    serde_json::from_str::<WatcherHashJSON>(&content)
+pub fn get_file_hash(path: &PathBuf) -> String {
+    if path.is_dir() {
+        return "".to_string();
+    }
+    match std::fs::read(path) {
+        Ok(content) => {
+            seahash::hash(&content).to_string()
+        }
+        Err(_) => {
+            "".to_string()
+        }
+    }
 }
 
 fn build_hashes(hashes_id: &String, source: &SherryConfigSourceJSON, local_path: &String) -> WatcherHashJSON {
@@ -27,25 +37,13 @@ fn build_hashes(hashes_id: &String, source: &SherryConfigSourceJSON, local_path:
         id: hashes_id.clone(),
         source_id: source.id.clone(),
         local_path: local_path.clone(),
-        hashes: Default::default(),
+        hashes: glob(Path::new(local_path).join("**").to_str().unwrap()).unwrap().filter_map(|v| {
+            let res = v.unwrap();
+            return if res.is_file() { Some((res.to_str().unwrap().to_string(), get_file_hash(&res))) } else { None };
+        }).into_iter().collect(),
     }
 }
 
-pub async fn get_hashes(dir: &Path, source: &SherryConfigSourceJSON, local_path: &String, hashes_id: &String) -> Option<WatcherHashJSON> {
-    let hashes_path = dir.join(HASHES_DIR).join(hashes_id);
-    let mut hashes_str = String::from("");
-    if hashes_path.exists() {
-        if let Ok(hashes_content) = fs::read_to_string(hashes_path).await {
-            hashes_str = hashes_content
-        }
-    } else {}
-
-    if hashes_str.is_empty() {
-        return None;
-    }
-
-    match parse_hashes(hashes_str) {
-        Ok(hashes) => Some(hashes),
-        Err(_) => None
-    }
+pub async fn get_hashes(dir: &Path, source: &SherryConfigSourceJSON, local_path: &String, hashes_id: &String) -> Result<WatcherHashJSON, String> {
+    initialize_json_file_with(&dir.join(HASHES_DIR).join(hashes_id), &|| { build_hashes(hashes_id, source, local_path) })
 }
