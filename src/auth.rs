@@ -10,7 +10,7 @@ use crate::helpers::{initialize_json_file, read_json_file, write_json_file};
 #[derive(SerdeDiff, Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Credentials {
-    id: String,
+    user_id: String,
     email: String,
     username: String,
     access_token: String,
