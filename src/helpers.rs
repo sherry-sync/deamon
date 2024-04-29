@@ -1,9 +1,22 @@
+use std::collections::{BTreeMap, HashMap};
 use std::fs;
+use std::future::Future;
 use std::io::Read;
 use std::path::Path;
 
 use serde::de::DeserializeOwned;
-use serde::Serialize;
+use serde::{Serialize, Serializer};
+
+pub fn ordered_map<S, K: Ord + Serialize, V: Serialize>(
+    value: &HashMap<K, V>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+{
+    let ordered: BTreeMap<_, _> = value.iter().collect();
+    ordered.serialize(serializer)
+}
 
 pub fn str_err_prefix<T: ToString + 'static>(prefix: &'static str) -> impl Fn(T) -> String {
     move |e| {
@@ -61,6 +74,22 @@ pub fn initialize_json_file_with<T, P: AsRef<Path>, C>(path: P, default: &C) -> 
         Ok(v) => Ok(v),
         Err(_) => {
             let value = default();
+            write_json_file(&path, &value)?;
+            Ok(value)
+        }
+    }
+}
+
+pub async fn initialize_json_file_with_async<T, P: AsRef<Path>, C, Fut>(path: P, default: &C) -> Result<T, String>
+    where
+        T: DeserializeOwned + Serialize,
+        C: Fn() -> Fut,
+        Fut: Future<Output=T>,
+{
+    match read_json_file(&path) {
+        Ok(v) => Ok(v),
+        Err(_) => {
+            let value = default().await;
             write_json_file(&path, &value)?;
             Ok(value)
         }

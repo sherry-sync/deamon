@@ -14,7 +14,7 @@ use serde_diff::SerdeDiff;
 
 use crate::auth::{initialize_auth_config, read_auth_config, SherryAuthorizationConfigJSON, write_auth_config};
 use crate::constants::{AUTH_FILE, CONFIG_FILE, DEFAULT_API_URL};
-use crate::helpers::{initialize_json_file, read_json_file, str_err_prefix, write_json_file};
+use crate::helpers::{ordered_map, initialize_json_file, read_json_file, str_err_prefix, write_json_file};
 
 #[derive(SerdeDiff, Serialize, Deserialize, Copy, Clone, Debug, Eq, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -48,6 +48,7 @@ pub struct SherryConfigWatcherJSON {
 #[serde(rename_all = "camelCase")]
 pub struct SherryConfigJSON {
     pub api_url: String,
+    #[serde(serialize_with = "ordered_map")]
     pub sources: HashMap<String, SherryConfigSourceJSON>,
     pub watchers: Vec<SherryConfigWatcherJSON>,
     pub webhooks: Vec<String>,

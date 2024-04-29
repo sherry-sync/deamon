@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_diff::SerdeDiff;
 
 use crate::constants::AUTH_FILE;
-use crate::helpers::{initialize_json_file, read_json_file, write_json_file};
+use crate::helpers::{ordered_map, initialize_json_file, read_json_file, write_json_file};
 
 #[derive(SerdeDiff, Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -21,6 +21,7 @@ pub struct Credentials {
 pub struct SherryAuthorizationConfigJSON {
     default: String,
     // user_id => credentials
+    #[serde(serialize_with = "ordered_map")]
     records: HashMap<String, Credentials>,
 }
 

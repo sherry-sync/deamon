@@ -10,8 +10,8 @@ use tokio::sync::mpsc::Sender;
 use tokio::time::Instant;
 
 use crate::config::{AccessRights, SherryConfig, SherryConfigWatcherJSON};
-use crate::events::file_event::{complete_events, filter_events, get_sync_events, minify_results, optimize_events, SyncEvent};
-use crate::hash::get_hashes;
+use crate::events::file_event::{complete_events, filter_events, get_sync_events, minify_results, optimize_events, SyncEvent, SyncEventKind};
+use crate::hash::{get_hashes, update_hashes};
 
 pub async fn process_result(config: Arc<Mutex<SherryConfig>>, source_id: &String, results: &Vec<BasedDebounceEvent>) {
     let dir = config.lock().get_path();
@@ -41,9 +41,10 @@ pub async fn process_result(config: Arc<Mutex<SherryConfig>>, source_id: &String
                                    .collect::<Vec<SyncEvent>>()
                            ),
             )
-        );
+        ).await;
 
     let mut hashes_map = HashMap::new();
+    let mut updated_hashes = HashMap::new();
     for e in events {
         let watcher = match watchers.get(&e.base.to_str().unwrap().to_string()) {
             Some(watcher) => watcher,
@@ -53,15 +54,36 @@ pub async fn process_result(config: Arc<Mutex<SherryConfig>>, source_id: &String
         let hashes_id = watcher.hashes_id.clone();
         let base = e.base.clone();
 
-        let hashes = hashes_map
-            .entry(base.clone())
-            .or_insert_with(|| get_hashes(&dir, &source, &base, &hashes_id).unwrap());
-
-        match hashes.hashes.get(&e.local_path.to_str().unwrap().to_string()) {
-            None => {}
-            Some(_) => {
-                
+        let hashes = match hashes_map.get(&base) {
+            Some(v) => v,
+            None => {
+                let h = get_hashes(&dir, &source, &base, &hashes_id).await.unwrap();
+                hashes_map.insert(base.clone(), h);
+                hashes_map.get(&base).unwrap()
             }
+        };
+
+        let mut to_update = updated_hashes.entry(base.clone()).or_insert(hashes.clone());
+        match e.kind {
+            SyncEventKind::Delete => {
+                to_update.hashes.remove(&e.local_path.to_str().unwrap().to_string());
+            }
+            SyncEventKind::Rename => {
+                to_update.hashes.remove(&e.old_local_path.to_str().unwrap().to_string());
+                to_update.hashes.insert(e.local_path.to_str().unwrap().to_string(), e.update_hash);
+            }
+            _ => {
+                to_update.hashes.insert(e.local_path.to_str().unwrap().to_string(), e.update_hash);
+            }
+        }
+
+        // Validate by API
+
+        // Send update
+    }
+    for (k, v) in updated_hashes {
+        if *hashes_map.get(&k).unwrap() != v {
+            update_hashes(&dir, &v).await.unwrap();
         }
     }
 }

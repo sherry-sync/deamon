@@ -1,6 +1,5 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
-use std::fs;
 use std::ops::Deref;
 use std::path::PathBuf;
 use std::time::SystemTime;
@@ -34,6 +33,7 @@ pub struct SyncEvent {
     pub file_type: FileType,
     pub kind: SyncEventKind,
     pub local_path: PathBuf,
+    pub old_local_path: PathBuf,
     pub sync_path: String,
     pub old_sync_path: String,
     pub update_hash: String,
@@ -155,6 +155,7 @@ fn get_dir_file_events(config: &SherryConfigSourceJSON, path: &PathBuf, base: &P
             file_type: FileType::File,
             kind: kind.clone(),
             local_path: path.clone(),
+            old_local_path: path.clone(),
             old_sync_path: sync_path.clone(),
             update_hash: "".to_string(),
             size: 0,
@@ -211,6 +212,7 @@ pub fn get_sync_events(config: &SherryConfigSourceJSON, result: &BasedDebounceEv
                         update_hash: "".to_string(),
                         size: 0,
                         local_path,
+                        old_local_path,
                         sync_path,
                         old_sync_path,
                         timestamp: SystemTime::now(),
@@ -228,6 +230,7 @@ pub fn get_sync_events(config: &SherryConfigSourceJSON, result: &BasedDebounceEv
                     update_hash: "".to_string(),
                     size: 0,
                     local_path,
+                    old_local_path,
                     sync_path,
                     old_sync_path,
                     timestamp: SystemTime::now(),
@@ -250,6 +253,7 @@ pub fn get_sync_events(config: &SherryConfigSourceJSON, result: &BasedDebounceEv
                         update_hash: "".to_string(),
                         size: 0,
                         local_path,
+                        old_local_path,
                         sync_path,
                         old_sync_path,
                         timestamp: SystemTime::now(),
@@ -263,6 +267,7 @@ pub fn get_sync_events(config: &SherryConfigSourceJSON, result: &BasedDebounceEv
                         update_hash: "".to_string(),
                         size: 0,
                         local_path,
+                        old_local_path,
                         sync_path,
                         old_sync_path,
                         timestamp: SystemTime::now(),
@@ -278,6 +283,7 @@ pub fn get_sync_events(config: &SherryConfigSourceJSON, result: &BasedDebounceEv
                 update_hash: "".to_string(),
                 size: 0,
                 local_path,
+                old_local_path,
                 sync_path,
                 old_sync_path,
                 timestamp: SystemTime::now(),
@@ -291,6 +297,7 @@ pub fn get_sync_events(config: &SherryConfigSourceJSON, result: &BasedDebounceEv
                 update_hash: "".to_string(),
                 size: 0,
                 local_path,
+                old_local_path,
                 sync_path,
                 old_sync_path,
                 timestamp: SystemTime::now(),
@@ -507,11 +514,11 @@ pub fn filter_events(config: &SherryConfigSourceJSON, events: &Vec<SyncEvent>) -
     }).collect()
 }
 
-pub fn complete_events(events: &Vec<SyncEvent>) -> Vec<SyncEvent> {
-    events.iter().map(|e| {
+pub async fn complete_events(events: &Vec<SyncEvent>) -> Vec<SyncEvent> {
+    futures::future::join_all(events.iter().map( |e| async {
         SyncEvent {
-            update_hash: get_file_hash(&e.local_path),
+            update_hash: get_file_hash(&e.local_path).await,
             ..e.clone()
         }
-    }).collect()
+    })).await.into_iter().collect()
 }
