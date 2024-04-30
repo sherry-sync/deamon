@@ -6,32 +6,42 @@ use std::time::Duration;
 use notify::{RecommendedWatcher, Watcher};
 use notify_debouncer_full::{DebounceEventResult, new_debouncer};
 use parking_lot::Mutex;
+use rust_socketio::asynchronous::Client;
 
 use crate::config::{get_source_by_path, SherryConfig};
 use crate::events::event_processing::{BasedDebounceEvent, EventProcessingDebounce};
 use crate::logs::initialize_logs;
+use crate::server::socket::initialize_socket;
 
 pub struct App {
     config: Arc<Mutex<SherryConfig>>,
+    socket: Arc<Mutex<Client>>,
 }
 
 impl App {
-    pub fn new(config_dir: &PathBuf) -> Result<App, ()> {
+    pub async fn new(config_dir: &PathBuf) -> Result<App, ()> {
         println!("Using configuration from: {:?}", config_dir);
         println!("Using recommended watcher: {:?}", RecommendedWatcher::kind());
 
-        let config = SherryConfig::new(config_dir);
+        let config = match SherryConfig::new(config_dir) {
+            Err(_) => {
+                println!("Unable to initialize configuration, maybe access is denied");
+                return Err(());
+            }
+            Ok(v) => v
+        };
 
-        if config.is_err() {
-            println!("Unable to initialize configuration, maybe access is denied");
-            return Err(());
-        }
+        let socket = initialize_socket(
+            config.get_main().socket_url,
+            config.get_auth().records.iter().map(|(k, v)| v.access_token.clone()).collect()
+        ).await;
 
-        let config = Arc::new(Mutex::new(config.unwrap()));
+        let config = Arc::new(Mutex::new(config));
+        let socket = Arc::new(Mutex::new(socket));
 
         initialize_logs(config_dir);
 
-        Ok(App { config })
+        Ok(App { config, socket })
     }
 
     pub async fn listen(&mut self) {

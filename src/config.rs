@@ -13,8 +13,9 @@ use serde::{Deserialize, Serialize};
 use serde_diff::SerdeDiff;
 
 use crate::auth::{initialize_auth_config, read_auth_config, SherryAuthorizationConfigJSON, write_auth_config};
-use crate::constants::{AUTH_FILE, CONFIG_FILE, DEFAULT_API_URL};
-use crate::helpers::{ordered_map, initialize_json_file, read_json_file, str_err_prefix, write_json_file};
+use crate::constants::{AUTH_FILE, CONFIG_FILE, DEFAULT_API_URL, DEFAULT_SOCKET_URL};
+use crate::helpers::{ordered_map, str_err_prefix};
+use crate::files::{initialize_json_file, read_json_file, write_json_file};
 
 #[derive(SerdeDiff, Serialize, Deserialize, Copy, Clone, Debug, Eq, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -48,6 +49,7 @@ pub struct SherryConfigWatcherJSON {
 #[serde(rename_all = "camelCase")]
 pub struct SherryConfigJSON {
     pub api_url: String,
+    pub socket_url: String,
     #[serde(serialize_with = "ordered_map")]
     pub sources: HashMap<String, SherryConfigSourceJSON>,
     pub watchers: Vec<SherryConfigWatcherJSON>,
@@ -94,6 +96,7 @@ fn read_main_config(dir: &Path) -> Result<SherryConfigJSON, String> {
 fn initialize_main_config(dir: &Path) -> Result<SherryConfigJSON, String> {
     initialize_json_file(dir.join(CONFIG_FILE), SherryConfigJSON {
         api_url: DEFAULT_API_URL.to_string(),
+        socket_url: DEFAULT_SOCKET_URL.to_string(),
         sources: HashMap::new(),
         watchers: Vec::new(),
         webhooks: Vec::new(),
@@ -220,6 +223,9 @@ impl SherryConfig {
     }
     pub fn get_main(&self) -> SherryConfigJSON {
         self.data.lock().clone()
+    }
+    pub fn get_auth(&self) -> SherryAuthorizationConfigJSON {
+        self.auth.lock().clone()
     }
     pub fn get_path(&self) -> PathBuf {
         self.dir.clone()

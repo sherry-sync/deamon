@@ -1,5 +1,6 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
+use std::fmt;
 use std::ops::Deref;
 use std::path::PathBuf;
 use std::time::SystemTime;
@@ -19,6 +20,11 @@ pub enum SyncEventKind {
     Update,
     Rename,
     Delete,
+}
+impl fmt::Display for SyncEventKind {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]

@@ -8,7 +8,8 @@ use serde_diff::SerdeDiff;
 
 use crate::config::SherryConfigSourceJSON;
 use crate::constants::HASHES_DIR;
-use crate::helpers::{ordered_map, initialize_json_file_with_async, str_err_prefix, write_json_file};
+use crate::helpers::{ordered_map, str_err_prefix};
+use crate::files::{initialize_json_file_with_async, write_json_file};
 
 #[derive(SerdeDiff, Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
 #[serde(rename_all = "camelCase")]

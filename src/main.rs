@@ -11,12 +11,13 @@ use crate::constants::CONFIG_DIR;
 mod events;
 mod config;
 mod app;
-mod api;
 mod logs;
 mod hash;
 mod auth;
 mod helpers;
 mod constants;
+mod server;
+mod files;
 
 #[derive(Parser)]
 struct Args {
@@ -44,7 +45,7 @@ async fn main() -> Result<(), String> {
 
     let config_dir = resolve_config_dir(args.config);
 
-    let app = App::new(&config_dir);
+    let app = App::new(&config_dir).await;
     if app.is_err() { return Err("Demon start failed".to_string()); }
     let mut app = app.unwrap();
 
