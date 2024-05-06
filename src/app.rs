@@ -9,13 +9,12 @@ use parking_lot::Mutex;
 use rust_socketio::asynchronous::Client;
 
 use crate::config::{get_source_by_path, SherryConfig};
-use crate::events::event_processing::{BasedDebounceEvent, EventProcessingDebounce};
+use crate::event::event_processing::{BasedDebounceEvent, EventProcessingDebounce};
 use crate::logs::initialize_logs;
-use crate::server::socket::initialize_socket;
 
 pub struct App {
     config: Arc<Mutex<SherryConfig>>,
-    socket: Arc<Mutex<Client>>,
+    socket: Arc<Mutex<Option<Client>>>,
 }
 
 impl App {
@@ -31,17 +30,17 @@ impl App {
             Ok(v) => v
         };
 
-        let socket = initialize_socket(
-            config.get_main().socket_url,
-            config.get_auth().records.iter().map(|(k, v)| v.access_token.clone()).collect()
-        ).await;
+        // let socket = initialize_socket(
+        //     config.get_main().socket_url,
+        //     config.get_auth().records.iter().map(|(_, v)| v.access_token.clone()).collect()
+        // ).await;
 
         let config = Arc::new(Mutex::new(config));
-        let socket = Arc::new(Mutex::new(socket));
+        // let socket = Arc::new(Mutex::new(socket));
 
         initialize_logs(config_dir);
 
-        Ok(App { config, socket })
+        Ok(App { config, socket: Arc::new(Mutex::new(None)) })
     }
 
     pub async fn listen(&mut self) {

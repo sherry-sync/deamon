@@ -11,7 +11,7 @@ use notify::EventKind;
 use notify_debouncer_full::DebouncedEvent;
 
 use crate::config::SherryConfigSourceJSON;
-use crate::events::event_processing::BasedDebounceEvent;
+use crate::event::event_processing::BasedDebounceEvent;
 use crate::hash::get_file_hash;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]

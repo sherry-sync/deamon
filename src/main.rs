@@ -8,7 +8,7 @@ use path_clean::PathClean;
 use crate::app::App;
 use crate::constants::CONFIG_DIR;
 
-mod events;
+mod event;
 mod config;
 mod app;
 mod logs;
