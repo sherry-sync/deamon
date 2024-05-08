@@ -81,7 +81,6 @@ impl App {
                     debounce.send(BasedDebounceEvent {
                         event: result,
                         base: local_path,
-                        hash_id: watcher.hashes_id.clone(),
                     })
                 }
 
