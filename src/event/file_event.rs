@@ -11,7 +11,7 @@ use notify::EventKind;
 use notify_debouncer_full::DebouncedEvent;
 
 use crate::config::SherryConfigSourceJSON;
-use crate::events::event_processing::BasedDebounceEvent;
+use crate::event::event_processing::BasedDebounceEvent;
 use crate::hash::get_file_hash;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -87,7 +87,6 @@ pub fn minify_results(results: &Vec<BasedDebounceEvent>) -> Vec<BasedDebounceEve
                                             time: to.time,
                                         },
                                         base: result.base.clone(),
-                                        hash_id: result.hash_id.clone(),
                                     })
                                 }
                             }
@@ -122,7 +121,6 @@ pub fn minify_results(results: &Vec<BasedDebounceEvent>) -> Vec<BasedDebounceEve
                             time: result_event.time.clone(),
                         },
                         base: result.base.clone(),
-                        hash_id: result.hash_id.clone(),
                     })
                 }
             }

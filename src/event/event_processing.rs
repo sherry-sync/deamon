@@ -10,7 +10,7 @@ use tokio::sync::mpsc::Sender;
 use tokio::time::Instant;
 
 use crate::config::{AccessRights, SherryConfig, SherryConfigWatcherJSON};
-use crate::events::file_event::{complete_events, filter_events, get_sync_events, minify_results, optimize_events, SyncEvent, SyncEventKind};
+use crate::event::file_event::{complete_events, filter_events, get_sync_events, minify_results, optimize_events, SyncEvent, SyncEventKind};
 use crate::hash::{get_hashes, update_hashes};
 
 pub async fn process_result(config: Arc<Mutex<SherryConfig>>, source_id: &String, results: &Vec<BasedDebounceEvent>) {
@@ -129,7 +129,6 @@ fn create_debounce(rt: &tokio::runtime::Handle, config: &Arc<Mutex<SherryConfig>
 pub struct BasedDebounceEvent {
     pub event: DebouncedEvent,
     pub base: PathBuf,
-    pub hash_id: String,
 }
 
 pub struct EventProcessingDebounce {
