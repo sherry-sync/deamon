@@ -12,6 +12,7 @@ pub async fn send_file(config: SherryConfigJSON, auth: String, event: &SyncEvent
             multipart::Form::new()
                 .text("eventType", event.kind.to_string())
                 .text("fileName", event.sync_path.to_string())
+                .text("fileHash", event.update_hash.to_string())
                 .part("file", multipart::Part::stream(Body::wrap_stream(FramedRead::new(
                     File::open(&event.local_path).await?,
                     BytesCodec::new(),
