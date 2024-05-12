@@ -11,10 +11,10 @@ pub async fn send_file(config: SherryConfigJSON, auth: String, event: &SyncEvent
     if event.kind == SyncEventKind::Create || event.kind == SyncEventKind::Update {
         form = form
             .text("fileHash", event.update_hash.to_string())
-                .part("file", multipart::Part::stream(Body::wrap_stream(FramedRead::new(
-            File::open(&event.local_path).await?,
-            BytesCodec::new(),
-        ))));
+            .part("file", multipart::Part::stream(Body::wrap_stream(FramedRead::new(
+                File::open(&event.local_path).await?,
+                BytesCodec::new(),
+            ))));
     }
 
     Ok(reqwest::Client::new()
