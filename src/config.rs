@@ -29,6 +29,8 @@ pub enum AccessRights {
 pub struct SherryConfigSourceJSON {
     pub id: String,
     pub access: AccessRights,
+    pub user_id: String,
+    pub owner_id: String,
     pub max_file_size: u64,
     pub max_dir_size: u64,
     pub allow_dir: bool,
@@ -50,6 +52,7 @@ pub struct SherryConfigWatcherJSON {
 pub struct SherryConfigJSON {
     pub api_url: String,
     pub socket_url: String,
+    // userId@folderId -> source
     #[serde(serialize_with = "ordered_map")]
     pub sources: HashMap<String, SherryConfigSourceJSON>,
     pub watchers: Vec<SherryConfigWatcherJSON>,
