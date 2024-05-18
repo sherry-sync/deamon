@@ -7,7 +7,8 @@ use crate::event::file_event::{SyncEvent, SyncEventKind};
 pub async fn send_file(config: SherryConfigJSON, auth: String, event: &SyncEvent) -> anyhow::Result<String> {
     let mut form = multipart::Form::new()
         .text("eventType", event.kind.to_string())
-        .text("fileName", event.sync_path.to_string());
+        .text("fileName", event.sync_path.to_string())
+        .text("fileType", event.file_type.to_string());
     if event.kind == SyncEventKind::Create || event.kind == SyncEventKind::Update {
         form = form
             .text("fileHash", event.update_hash.to_string())

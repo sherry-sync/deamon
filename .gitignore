@@ -1,4 +1,4 @@
 /target
 .idea
-dev-config
+*dev-config
 test-dirs

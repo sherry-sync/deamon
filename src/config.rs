@@ -28,6 +28,7 @@ pub enum AccessRights {
 #[serde(rename_all = "camelCase")]
 pub struct SherryConfigSourceJSON {
     pub id: String,
+    pub name: String,
     pub access: AccessRights,
     pub user_id: String,
     pub owner_id: String,

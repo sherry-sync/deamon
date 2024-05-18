@@ -10,10 +10,11 @@ use tokio::sync::mpsc::Sender;
 use tokio::time::Instant;
 
 use crate::config::{AccessRights, SherryConfig, SherryConfigWatcherJSON};
-use crate::event::file_event::{complete_events, filter_events, get_sync_events, minify_results, optimize_events, SyncEvent, SyncEventKind};
+use crate::event::file_event::{complete_events, filter_events, get_sync_events, minify_results, optimize_events, log_events, SyncEvent, SyncEventKind};
 use crate::hash::{get_hashes, update_hashes};
 
 pub async fn process_result(config: Arc<Mutex<SherryConfig>>, source_id: &String, results: &Vec<BasedDebounceEvent>) {
+    
     let dir = config.lock().get_path();
     let config = config.lock().get_main();
 
@@ -30,18 +31,17 @@ pub async fn process_result(config: Arc<Mutex<SherryConfig>>, source_id: &String
     if source.access == AccessRights::Read {
         return;
     }
+    
+    let events = &minify_results(&results)
+        .iter()
+        .flat_map(|r| get_sync_events(&source, r))
+        .collect::<Vec<SyncEvent>>();
 
-    let events =
-        complete_events(
-            &filter_events(&source,
-                           &optimize_events(
-                               &minify_results(&results)
-                                   .iter()
-                                   .flat_map(|r| get_sync_events(&source, r))
-                                   .collect::<Vec<SyncEvent>>()
-                           ),
-            )
-        ).await;
+    log_events("Received", &events);
+
+    let events = complete_events(&filter_events(&source, &optimize_events(&events))).await;
+
+    log_events("Optimized", &events);
 
     let mut hashes_map = HashMap::new();
     let mut updated_hashes = HashMap::new();

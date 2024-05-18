@@ -1,3 +1,4 @@
+use fmt::Display;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt;
@@ -21,7 +22,7 @@ pub enum SyncEventKind {
     Rename,
     Delete,
 }
-impl fmt::Display for SyncEventKind {
+impl Display for SyncEventKind {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{:?}", self)
     }
@@ -31,6 +32,12 @@ impl fmt::Display for SyncEventKind {
 pub enum FileType {
     Dir,
     File,
+}
+
+impl Display for FileType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -47,7 +54,7 @@ pub struct SyncEvent {
     pub timestamp: SystemTime,
 }
 
-pub fn print_events(name: &str, events: &Vec<SyncEvent>) {
+pub fn log_events(name: &str, events: &Vec<SyncEvent>) {
     log::info!("{name} [");
     for event in events {
         log::info!("  {:?}", event)
