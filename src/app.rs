@@ -62,6 +62,9 @@ impl App {
                         continue;
                     }
                     let watcher = source.unwrap();
+                    if !watcher.complete {
+                        continue;
+                    }
 
                     let local_path = PathBuf::from(&watcher.local_path);
                     if !local_path.exists() {

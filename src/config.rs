@@ -46,6 +46,7 @@ pub struct SherryConfigWatcherJSON {
     pub local_path: String,
     pub hashes_id: String,
     pub user_id: String,
+    pub complete: bool
 }
 
 #[derive(SerdeDiff, Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
