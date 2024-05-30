@@ -25,7 +25,7 @@ pub async fn process_result(config: Arc<Mutex<SherryConfig>>, source_id: &String
     let source = source.unwrap();
     let watchers: HashMap<String, &SherryConfigWatcherJSON> = config.watchers
         .iter()
-        .filter_map(|e| if e.source_id.eq(source_id) { Some((e.local_path.clone(), e)) } else { None })
+        .filter_map(|e| if e.source.eq(source_id) { Some((e.local_path.clone(), e)) } else { None })
         .collect();
 
     if source.access == AccessRights::Read {

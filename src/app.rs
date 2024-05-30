@@ -71,7 +71,7 @@ impl App {
                         should_revalidate = true;
                         continue;
                     }
-                    let source_id = watcher.source_id.clone();
+                    let source_id = watcher.source.clone();
                     let source = config.sources.get(source_id.as_str());
                     if source.is_none() {
                         should_revalidate = true;

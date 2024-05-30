@@ -14,14 +14,15 @@ use serde_diff::SerdeDiff;
 
 use crate::auth::{initialize_auth_config, read_auth_config, SherryAuthorizationConfigJSON, write_auth_config};
 use crate::constants::{AUTH_FILE, CONFIG_FILE, DEFAULT_API_URL, DEFAULT_SOCKET_URL};
-use crate::helpers::{ordered_map, str_err_prefix};
 use crate::files::{initialize_json_file, read_json_file, write_json_file};
+use crate::helpers::{ordered_map, str_err_prefix};
 
 #[derive(SerdeDiff, Serialize, Deserialize, Copy, Clone, Debug, Eq, PartialEq)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "UPPERCASE")]
 pub enum AccessRights {
     Read,
     Write,
+    Owner,
 }
 
 #[derive(SerdeDiff, Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
@@ -42,11 +43,11 @@ pub struct SherryConfigSourceJSON {
 #[derive(SerdeDiff, Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct SherryConfigWatcherJSON {
-    pub source_id: String,
+    pub source: String,
     pub local_path: String,
     pub hashes_id: String,
     pub user_id: String,
-    pub complete: bool
+    pub complete: bool,
 }
 
 #[derive(SerdeDiff, Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
@@ -72,8 +73,8 @@ fn revalidate_sources(dir: &Path, config: &SherryConfigJSON) -> bool {
     new_config.watchers = new_config.watchers
         .iter()
         .filter(|w| {
-            if PathBuf::from(&w.local_path).exists() && new_config.sources.get(w.source_id.as_str()).is_some() {
-                required_sources.insert(w.source_id.clone());
+            if PathBuf::from(&w.local_path).exists() && new_config.sources.get(w.source.as_str()).is_some() {
+                required_sources.insert(w.source.clone());
                 true
             } else { false }
         })
