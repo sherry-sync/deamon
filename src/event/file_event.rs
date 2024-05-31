@@ -1,6 +1,7 @@
 use fmt::Display;
 use std::cmp::Ordering;
 use std::collections::HashMap;
+use std::ffi::OsStr;
 use std::fmt;
 use std::ops::Deref;
 use std::path::PathBuf;
@@ -14,6 +15,7 @@ use notify_debouncer_full::DebouncedEvent;
 use crate::config::SherryConfigSourceJSON;
 use crate::event::event_processing::BasedDebounceEvent;
 use crate::hash::get_file_hash;
+use crate::helpers::{normalize_path, PATH_SEP};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum SyncEventKind {
@@ -22,6 +24,7 @@ pub enum SyncEventKind {
     Rename,
     Delete,
 }
+
 impl Display for SyncEventKind {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{:?}", self)
@@ -42,6 +45,7 @@ impl Display for FileType {
 
 #[derive(Debug, Clone)]
 pub struct SyncEvent {
+    pub source_id: String,
     pub base: PathBuf,
     pub file_type: FileType,
     pub kind: SyncEventKind,
@@ -140,37 +144,30 @@ pub fn minify_results(results: &Vec<BasedDebounceEvent>) -> Vec<BasedDebounceEve
     new_results
 }
 
-const PATH_SEP: &str = "/";
-
-fn get_sync_path(config: &SherryConfigSourceJSON, path: &PathBuf, base: &PathBuf) -> String {
-    format!(
-        "{}:{}",
-        config.id,
-        path.strip_prefix(base).unwrap().iter()
-            .map(|c| c.to_os_string().into_string().unwrap())
-            .collect::<Vec<String>>()
-            .join(PATH_SEP)
-    )
-}
-
-fn get_raw_sync_path(sync_path: &String) -> String {
-    sync_path.splitn(2, ":").collect::<Vec<&str>>()[1].to_string()
+fn get_sync_path(path: &PathBuf, base: &PathBuf) -> String {
+    normalize_path(&PathBuf::from(path
+        .strip_prefix(base).unwrap()
+        .iter().collect::<Vec<&OsStr>>()
+        .join(OsStr::new(PATH_SEP))
+    )).to_str().unwrap().to_string()
 }
 
 fn get_dir_file_events(config: &SherryConfigSourceJSON, path: &PathBuf, base: &PathBuf, kind: &SyncEventKind) -> Vec<SyncEvent> {
     let mut events = Vec::new();
+    let path = normalize_path(path);
     if path.is_file() {
-        let sync_path = get_sync_path(config, &path, base);
+        let sync_path = get_sync_path(&path, base);
         events.push(SyncEvent {
+            source_id: config.id.clone(),
             base: base.clone(),
             file_type: FileType::File,
             kind: kind.clone(),
             local_path: path.clone(),
             old_local_path: path.clone(),
             old_sync_path: sync_path.clone(),
+            sync_path,
             update_hash: "".to_string(),
             size: 0,
-            sync_path,
             timestamp: SystemTime::now(),
         });
     } else if path.is_dir() {
@@ -203,20 +200,21 @@ pub fn get_sync_events(config: &SherryConfigSourceJSON, result: &BasedDebounceEv
     let mut events = Vec::new();
 
 
-    let local_path = result.paths.last().unwrap().to_path_buf();
-    let old_local_path = result.paths.first().unwrap().to_path_buf();
+    let local_path = normalize_path(&result.paths.last().unwrap().to_path_buf());
+    let old_local_path = normalize_path(&result.paths.first().unwrap().to_path_buf());
     if local_path.is_symlink() {
         return events;
     }
 
-    let sync_path = get_sync_path(config, &local_path, base);
-    let old_sync_path = get_sync_path(config, &old_local_path, base);
+    let sync_path = get_sync_path(&local_path, base);
+    let old_sync_path = get_sync_path(&old_local_path, base);
 
     if local_path.is_dir() {
         match result.kind {
             EventKind::Modify(kind) => {
                 if kind == ModifyKind::Name(RenameMode::Both) {
                     events.push(SyncEvent {
+                        source_id: config.id.clone(),
                         base: base.clone(),
                         file_type: FileType::Dir,
                         kind: SyncEventKind::Rename,
@@ -235,6 +233,7 @@ pub fn get_sync_events(config: &SherryConfigSourceJSON, result: &BasedDebounceEv
             }
             EventKind::Remove(_) => {
                 events.push(SyncEvent {
+                    source_id: config.id.clone(),
                     base: base.clone(),
                     file_type: FileType::Dir,
                     kind: SyncEventKind::Delete,
@@ -258,6 +257,7 @@ pub fn get_sync_events(config: &SherryConfigSourceJSON, result: &BasedDebounceEv
             match kind {
                 ModifyKind::Name(_) => {
                     events.push(SyncEvent {
+                        source_id: config.id.clone(),
                         base: base.clone(),
                         file_type: FileType::File,
                         kind: SyncEventKind::Rename,
@@ -272,6 +272,7 @@ pub fn get_sync_events(config: &SherryConfigSourceJSON, result: &BasedDebounceEv
                 }
                 _ => {
                     events.push(SyncEvent {
+                        source_id: config.id.clone(),
                         base: base.clone(),
                         file_type: FileType::File,
                         kind: SyncEventKind::Update,
@@ -288,6 +289,7 @@ pub fn get_sync_events(config: &SherryConfigSourceJSON, result: &BasedDebounceEv
         }
         EventKind::Create(_) => {
             events.push(SyncEvent {
+                source_id: config.id.clone(),
                 base: base.clone(),
                 file_type: FileType::File,
                 kind: SyncEventKind::Create,
@@ -302,6 +304,7 @@ pub fn get_sync_events(config: &SherryConfigSourceJSON, result: &BasedDebounceEv
         }
         EventKind::Remove(_) => {
             events.push(SyncEvent {
+                source_id: config.id.clone(),
                 base: base.clone(),
                 file_type: FileType::File,
                 kind: SyncEventKind::Delete,
@@ -499,9 +502,7 @@ pub fn filter_events(config: &SherryConfigSourceJSON, events: &Vec<SyncEvent>) -
             return None;
         }
 
-        let raw_sync_path = get_raw_sync_path(&e.sync_path);
-
-        if !globs.is_empty() && !globs.iter().any(|p| p.matches(&raw_sync_path)) {
+        if !globs.is_empty() && !globs.iter().any(|p| p.matches(&e.sync_path)) {
             return None;
         }
 
@@ -526,7 +527,7 @@ pub fn filter_events(config: &SherryConfigSourceJSON, events: &Vec<SyncEvent>) -
 }
 
 pub async fn complete_events(events: &Vec<SyncEvent>) -> Vec<SyncEvent> {
-    futures::future::join_all(events.iter().map( |e| async {
+    futures::future::join_all(events.iter().map(|e| async {
         SyncEvent {
             update_hash: get_file_hash(&e.local_path).await,
             ..e.clone()

@@ -1,4 +1,8 @@
 use std::collections::{BTreeMap, HashMap};
+use std::ffi::OsStr;
+use std::path::PathBuf;
+
+use regex::Regex;
 use serde::{Serialize, Serializer};
 
 pub fn ordered_map<S, K: Ord + Serialize, V: Serialize>(
@@ -19,4 +23,17 @@ pub fn str_err_prefix<T: ToString + 'static>(prefix: &'static str) -> impl Fn(T)
         log::info!("{}", msg);
         msg
     }
+}
+
+pub const PATH_SEP: &str = "/";
+
+pub fn normalize_path(p: &PathBuf) -> PathBuf {
+    PathBuf::from(
+        Regex::new(r"[\\/]+").unwrap()
+            .replace_all(
+                p.iter().collect::<Vec<&OsStr>>()
+                    .join(OsStr::new(PATH_SEP))
+                    .to_str().unwrap(),
+                PATH_SEP).to_string()
+    )
 }

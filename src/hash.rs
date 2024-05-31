@@ -8,7 +8,7 @@ use serde_diff::SerdeDiff;
 
 use crate::config::SherryConfigSourceJSON;
 use crate::constants::HASHES_DIR;
-use crate::helpers::{ordered_map, str_err_prefix};
+use crate::helpers::{normalize_path, ordered_map, str_err_prefix};
 use crate::files::{initialize_json_file_with_async, write_json_file};
 
 #[derive(SerdeDiff, Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
@@ -47,7 +47,7 @@ async fn build_hashes(hashes_id: &String, source: &SherryConfigSourceJSON, local
         hashes: futures::future::join_all(glob_files
             .filter(|v: &GlobResult| v.as_ref().unwrap().is_file())
             .map(|v| async move {
-                let res = v.unwrap();
+                let res = normalize_path(&v.unwrap());
                 (res.to_str().unwrap().to_string(), get_file_hash(&res).await)
             })).await.into_iter().collect(),
     }
