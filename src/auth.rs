@@ -40,3 +40,54 @@ pub fn initialize_auth_config(dir: &PathBuf) -> Result<SherryAuthorizationConfig
         records: HashMap::new(),
     })
 }
+
+pub struct RevalidateAuthMeta {
+    pub new_users: Vec<Credentials>,
+    pub deleted_users: Vec<Credentials>,
+    pub valid_users: Vec<Credentials>,
+    pub updated_users: Vec<Credentials>,
+    pub invalid_users: Vec<Credentials>,
+}
+
+pub fn revalidate_auth(new: &SherryAuthorizationConfigJSON, old: &SherryAuthorizationConfigJSON) -> (SherryAuthorizationConfigJSON, RevalidateAuthMeta) {
+    let mut auth = new.clone();
+
+    if auth.records.iter().find(|(_, u)| u.user_id == auth.default).is_none() {
+        auth.default = "".to_string();
+    }
+
+    let mut new_users: Vec<Credentials> = vec![];
+    let mut deleted_users: Vec<Credentials> = vec![];
+    let mut valid_users: Vec<Credentials> = vec![];
+    let mut updated_users: Vec<Credentials> = vec![];
+    let mut invalid_users: Vec<Credentials> = vec![];
+    for (key, user) in auth.records.iter() {
+        if old.records.contains_key(key) {
+            if user != old.records.get(key).unwrap() {
+                updated_users.push(user.clone());
+            } else {
+                valid_users.push(user.clone());
+            }
+        } else {
+            new_users.push(user.clone());
+        }
+    }
+    for (key, user) in old.records.iter() {
+        if !auth.records.contains_key(key) {
+            deleted_users.push(user.clone());
+        }
+    }
+
+    // TODO: check tokens
+
+    (
+        auth,
+        RevalidateAuthMeta {
+            new_users,
+            deleted_users,
+            updated_users,
+            valid_users,
+            invalid_users,
+        }
+    )
+}

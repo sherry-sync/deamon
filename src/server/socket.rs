@@ -8,43 +8,79 @@ use serde_diff::SerdeDiff;
 #[derive(SerdeDiff, Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
 #[serde(rename_all = "camelCase")]
 struct AuthPayload {
-    authorizations: Vec<String>,
+    authorization: Vec<String>,
 }
 
-fn settings_change_handler(payload: Payload, socket: Client) -> BoxFuture<'static, ()>{
-    async move {
+fn folder_created_handler(payload: Payload, socket: Client) -> BoxFuture<'static, ()> {
+    log::info!("Folder Created: {:?}", payload);
 
-    }.boxed()
+    async move {}.boxed()
 }
 
-fn file_upsert_handler(payload: Payload, socket: Client) -> BoxFuture<'static, ()>{
-    async move {
+fn folder_updated_handler(payload: Payload, socket: Client) -> BoxFuture<'static, ()> {
+    log::info!("Folder Updated: {:?}", payload);
 
-    }.boxed()
+    async move {}.boxed()
 }
 
-fn file_remove_handler(payload: Payload, socket: Client) -> BoxFuture<'static, ()>{
-    async move {
+fn folder_deleted_handler(payload: Payload, socket: Client) -> BoxFuture<'static, ()> {
+    log::info!("Folder Deleted: {:?}", payload);
 
-    }.boxed()
+    async move {}.boxed()
 }
 
-fn access_remove_handler(payload: Payload, socket: Client) -> BoxFuture<'static, ()>{
-    async move {
 
-    }.boxed()
+fn folder_permission_granted_handler(payload: Payload, socket: Client) -> BoxFuture<'static, ()> {
+    log::info!("Folder Permission Granted: {:?}", payload);
+
+    async move {}.boxed()
 }
 
-pub async fn initialize_socket(url: String, tokens: Vec<String>) -> Client {
+fn folder_permission_revoked_handler(payload: Payload, socket: Client) -> BoxFuture<'static, ()> {
+    log::info!("Folder Permission Revoked: {:?}", payload);
+
+    async move {}.boxed()
+}
+
+fn folder_file_created_handler(payload: Payload, socket: Client) -> BoxFuture<'static, ()> {
+    log::info!("Folder File Created: {:?}", payload);
+
+    async move {}.boxed()
+}
+
+fn folder_file_updated_handler(payload: Payload, socket: Client) -> BoxFuture<'static, ()> {
+    log::info!("Folder File Updated: {:?}", payload);
+
+    async move {}.boxed()
+}
+
+fn folder_file_deleted_handler(payload: Payload, socket: Client) -> BoxFuture<'static, ()> {
+    log::info!("Folder File Deleted: {:?}", payload);
+
+    async move {}.boxed()
+}
+
+fn error_handler(payload: Payload, socket: Client) -> BoxFuture<'static, ()> {
+    log::error!("Socket Error: {:?}", payload);
+
+    async move {}.boxed()
+}
+
+pub async fn initialize_socket(url: &String, tokens: &Vec<String>) -> Client {
     ClientBuilder::new(url)
-        .auth(serde_json::to_value(AuthPayload {
-            authorizations: tokens
-        }).unwrap())
-        .on("folder:settings-changed", settings_change_handler)
-        .on("folder:file-added", file_upsert_handler)
-        .on("folder:file-changed", file_upsert_handler)
-        .on("folder:file-removed", file_remove_handler)
-        .on("folder:access-removed", access_remove_handler)
+        .opening_header("authorization", tokens.join(";"))
+        .on("FOLDER:CREATED", folder_created_handler)
+        .on("FOLDER:UPDATED", folder_updated_handler)
+        .on("FOLDER:DELETED", folder_deleted_handler)
+
+        .on("FOLDER:PERMISSION:GRANTED", folder_permission_granted_handler)
+        .on("FOLDER:PERMISSION:REVOKED", folder_permission_revoked_handler)
+
+        .on("FOLDER:FILE:CREATED", folder_file_created_handler)
+        .on("FOLDER:FILE:UPDATED", folder_file_updated_handler)
+        .on("FOLDER:FILE:DELETED", folder_file_deleted_handler)
+
+        .on("error", error_handler)
         .connect()
         .await
         .expect("Connection failed")

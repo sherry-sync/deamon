@@ -4,19 +4,18 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use notify_debouncer_full::DebouncedEvent;
-use parking_lot::Mutex;
+use tokio::sync::Mutex;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::Sender;
 use tokio::time::Instant;
 
-use crate::config::{AccessRights, SherryConfig, SherryConfigWatcherJSON};
+use crate::config::{AccessRights, SherryConfigWatcherJSON};
 use crate::event::file_event::{complete_events, filter_events, get_sync_events, minify_results, optimize_events, log_events, SyncEvent, SyncEventKind};
 use crate::hash::{get_hashes, update_hashes};
 
-pub async fn process_result(config: Arc<Mutex<SherryConfig>>, source_id: &String, results: &Vec<BasedDebounceEvent>) {
-    
-    let dir = config.lock().get_path();
-    let config = config.lock().get_main();
+pub async fn process_result(app: crate::app::App, source_id: &String, results: &Vec<BasedDebounceEvent>) {
+    let dir = app.config.lock().await.get_path();
+    let config = app.config.lock().await.get_main().await;
 
     let source = config.sources.get(source_id);
     if source.is_none() {
@@ -88,15 +87,14 @@ pub async fn process_result(config: Arc<Mutex<SherryConfig>>, source_id: &String
     }
 }
 
-fn create_debounce(rt: &tokio::runtime::Handle, config: &Arc<Mutex<SherryConfig>>, source_id: &String, is_running: &Arc<Mutex<bool>>) -> Sender<BasedDebounceEvent> {
-    let config = Arc::clone(config);
+fn create_debounce(rt: &tokio::runtime::Handle, app: crate::app::App, source_id: &String, is_running: &Arc<Mutex<bool>>) -> Sender<BasedDebounceEvent> {
     let source_id = source_id.clone();
     let is_running = Arc::clone(is_running);
 
     let (tx, mut rx) = mpsc::channel::<BasedDebounceEvent>(100);
-    { *is_running.lock() = true; }
-
     rt.spawn(async move {
+        { *is_running.lock().await = true; }
+
         let timeout = Duration::from_secs(1);
         let mut buffer = Vec::new();
         let mut last_event_time = Instant::now();
@@ -117,9 +115,10 @@ fn create_debounce(rt: &tokio::runtime::Handle, config: &Arc<Mutex<SherryConfig>
             }
             if is_conn_closed || last_event_time.elapsed() >= timeout { break; }
         }
-        { *is_running.lock() = false; }
 
-        process_result(config, &source_id, &buffer).await;
+        { *is_running.lock().await = false; }
+
+        process_result(app, &source_id, &buffer).await;
     });
 
     tx
@@ -133,37 +132,34 @@ pub struct BasedDebounceEvent {
 
 pub struct EventProcessingDebounce {
     _is_running: Arc<Mutex<bool>>,
-    config: Arc<Mutex<SherryConfig>>,
+    app: crate::app::App,
     source_id: String,
     tx: Option<Sender<BasedDebounceEvent>>,
     rt: tokio::runtime::Handle,
 }
 
 impl EventProcessingDebounce {
-    pub fn new(rt: &tokio::runtime::Handle, config: &Arc<Mutex<SherryConfig>>, source_id: &String) -> EventProcessingDebounce {
+    pub fn new(rt: &tokio::runtime::Handle, app: &crate::app::App, source_id: &String) -> EventProcessingDebounce {
         EventProcessingDebounce {
             _is_running: Arc::new(Mutex::new(false)),
-            config: Arc::clone(config),
+            app: app.clone(),
             source_id: source_id.clone(),
             tx: None,
             rt: rt.clone(),
         }
     }
 
-    pub fn send(&mut self, event: BasedDebounceEvent) {
-        if !self.is_running() {
-            self.tx = Some(create_debounce(&self.rt, &self.config, &self.source_id, &self._is_running));
+    pub async fn send(&mut self, event: BasedDebounceEvent) {
+        if !self.is_running().await {
+            self.tx = Some(create_debounce(&self.rt, self.app.clone(), &self.source_id, &self._is_running));
         }
         let tx = self.tx.clone().unwrap();
-        let rt = self.rt.clone();
-        rt.spawn(async move {
-            if let Err(e) = tx.send(event).await {
-                println!("Error sending event result: {:?}", e);
-            }
-        });
+        if let Err(e) = tx.send(event).await {
+            println!("Error sending event result: {:?}", e);
+        }
     }
 
-    pub fn is_running(&self) -> bool {
-        self._is_running.lock().clone()
+    pub async fn is_running(&self) -> bool {
+        self._is_running.lock().await.clone()
     }
 }

@@ -1,6 +1,11 @@
 use std::collections::{BTreeMap, HashMap};
 use std::ffi::OsStr;
+use std::future::Future;
 use std::path::PathBuf;
+use std::time::Duration;
+use futures::future::BoxFuture;
+use futures::FutureExt;
+use notify_debouncer_full::DebouncedEvent;
 
 use regex::Regex;
 use serde::{Serialize, Serializer};
