@@ -6,13 +6,11 @@ use std::time::Duration;
 use notify::{RecommendedWatcher, Watcher};
 use notify_debouncer_full::{DebounceEventResult, new_debouncer};
 use tokio::sync::Mutex;
-use rust_socketio::asynchronous::Client;
-use serde_json::json;
 
 use crate::config::{SherryConfig, SherryConfigJSON, SherryConfigWatcherJSON};
 use crate::event::event_processing::{BasedDebounceEvent, EventProcessingDebounce};
 use crate::logs::initialize_logs;
-use crate::server::socket::initialize_socket;
+use crate::server::socket::SocketClient;
 
 fn get_source_by_path<'a>(config: &'a SherryConfigJSON, path: &PathBuf) -> Option<&'a SherryConfigWatcherJSON> {
     config.watchers.iter().find_map(|w| {
@@ -26,7 +24,7 @@ fn get_source_by_path<'a>(config: &'a SherryConfigJSON, path: &PathBuf) -> Optio
 #[derive(Clone)]
 pub struct App {
     pub config: Arc<Mutex<SherryConfig>>,
-    pub socket: Arc<Mutex<Client>>,
+    pub socket: Arc<Mutex<SocketClient>>,
 }
 
 impl App {
@@ -36,26 +34,16 @@ impl App {
         log::info!("Using configuration from: {:?}", config_dir);
         log::info!("Using recommended watcher: {:?}", RecommendedWatcher::kind());
 
-        let config = match SherryConfig::new(config_dir).await {
-            Err(_) => {
-                println!("Unable to initialize configuration, maybe access is denied");
-                return Err(());
-            }
-            Ok(v) => v
-        };
+        let config = SherryConfig::new(config_dir).await.expect("Unable to initialize configuration, maybe access is denied");
+        log::info!("Initialized configuration");
 
-        let socket = initialize_socket(
-            &config.get_main().await.socket_url,
-            &config.get_auth().await.records.iter().map(|(_, v)| v.access_token.clone()).collect()
-        ).await;
-
-        socket.emit("connect", json!({})).await.expect("Socket connection failed");
+        let socket = SocketClient::new(&config).await;
         log::info!("Connected to socket");
 
-        let config = Arc::new(Mutex::new(config));
-        let socket = Arc::new(Mutex::new(socket));
-
-        Ok(App { config, socket })
+        Ok(App {
+            config: Arc::new(Mutex::new(config)),
+            socket: Arc::new(Mutex::new(socket)),
+        })
     }
 
     pub async fn listen(&mut self) {
@@ -66,12 +54,11 @@ impl App {
         let debouncer = new_debouncer(Duration::from_millis(200), None, move |results: DebounceEventResult| {
             rt.block_on(async {
                 if let Ok(results) = results {
-                    
                     let config = main_watcher_config.lock().await.get_main().await;
                     log::info!("Processing events: {:?}", results);
                     let mut should_revalidate = false;
 
-                    
+
                     for result in results {
                         let source_path = result.paths.first();
                         if source_path.is_none() {

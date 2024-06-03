@@ -9,7 +9,7 @@ use serde_diff::SerdeDiff;
 use crate::config::SherryConfigSourceJSON;
 use crate::constants::HASHES_DIR;
 use crate::helpers::{normalize_path, ordered_map, str_err_prefix};
-use crate::files::{initialize_json_file_with_async, write_json_file};
+use crate::files::{initialize_json_file_with, write_json_file};
 
 #[derive(SerdeDiff, Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -56,9 +56,9 @@ async fn build_hashes(hashes_id: &String, source: &SherryConfigSourceJSON, local
 pub async fn get_hashes(dir: &PathBuf, source: &SherryConfigSourceJSON, local_path: &PathBuf, hashes_id: &String) -> Result<WatcherHashJSON, String> {
     let hashes_dir = dir.join(HASHES_DIR);
     fs::create_dir_all(&hashes_dir).map_err(str_err_prefix("Error hashes dir creation"))?;
-    initialize_json_file_with_async(&hashes_dir.join(format!("{}.json", hashes_id)), &|| async { build_hashes(hashes_id, source, local_path).await }).await
+    initialize_json_file_with(&hashes_dir.join(format!("{}.json", hashes_id)), &|| async { build_hashes(hashes_id, source, local_path).await }).await
 }
 
 pub async fn update_hashes(dir: &PathBuf, hashes: &WatcherHashJSON) -> Result<(), String> {
-    write_json_file(dir.join(HASHES_DIR).join(format!("{}.json", hashes.id)), hashes)
+    write_json_file(dir.join(HASHES_DIR).join(format!("{}.json", hashes.id)), hashes).await
 }

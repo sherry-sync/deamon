@@ -1,16 +1,13 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::string::ToString;
 use std::sync::Arc;
 use std::sync::mpsc::{channel, Receiver};
 use std::time::Duration;
-use futures::task::SpawnExt;
 
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use notify_debouncer_full::{DebounceEventResult, Debouncer, FileIdMap, new_debouncer};
-use rust_socketio::asynchronous::Client;
 use serde::{Deserialize, Serialize};
 use serde_diff::SerdeDiff;
 use tokio::sync::Mutex;
@@ -19,7 +16,7 @@ use crate::auth::{initialize_auth_config, read_auth_config, revalidate_auth, She
 use crate::constants::{AUTH_FILE, CONFIG_FILE, DEFAULT_API_URL, DEFAULT_SOCKET_URL};
 use crate::files::{initialize_json_file, read_json_file, write_json_file};
 use crate::helpers::{ordered_map, str_err_prefix};
-use crate::server::socket::initialize_socket;
+use crate::server::socket::SocketClient;
 
 #[derive(SerdeDiff, Serialize, Deserialize, Copy, Clone, Debug, Eq, PartialEq)]
 #[serde(rename_all = "UPPERCASE")]
@@ -66,12 +63,12 @@ pub struct SherryConfigJSON {
     pub webhooks: Vec<String>,
 }
 
-fn write_main_config(dir: &Path, config: &SherryConfigJSON) -> Result<(), String> {
-    write_json_file(dir.join(CONFIG_FILE), config)
+async fn write_main_config(dir: &Path, config: &SherryConfigJSON) -> Result<(), String> {
+    write_json_file(dir.join(CONFIG_FILE), config).await
 }
 
-fn read_main_config(dir: &Path) -> Result<SherryConfigJSON, String> {
-    read_json_file(dir.join(CONFIG_FILE))
+async fn read_main_config(dir: &Path) -> Result<SherryConfigJSON, String> {
+    read_json_file(dir.join(CONFIG_FILE)).await
 }
 
 struct RevalidateConfigMeta {
@@ -85,7 +82,7 @@ struct RevalidateConfigMeta {
     pub invalid_sources: HashMap<String, SherryConfigSourceJSON>,
 }
 
-fn revalidate_config(new: &SherryConfigJSON, old: &SherryConfigJSON, auth: &SherryAuthorizationConfigJSON) -> (SherryConfigJSON, RevalidateConfigMeta) {
+async fn revalidate_config(new: &SherryConfigJSON, old: &SherryConfigJSON, auth: &SherryAuthorizationConfigJSON) -> (SherryConfigJSON, RevalidateConfigMeta) {
     let mut invalid_watchers: Vec<SherryConfigWatcherJSON> = vec![];
     let mut valid_watchers: Vec<SherryConfigWatcherJSON> = vec![];
     let mut new_watchers: Vec<SherryConfigWatcherJSON> = vec![];
@@ -145,22 +142,22 @@ fn revalidate_config(new: &SherryConfigJSON, old: &SherryConfigJSON, auth: &Sher
     )
 }
 
-fn initialize_main_config(dir: &Path) -> Result<SherryConfigJSON, String> {
+async fn initialize_main_config(dir: &Path) -> Result<SherryConfigJSON, String> {
     initialize_json_file(dir.join(CONFIG_FILE), SherryConfigJSON {
         api_url: DEFAULT_API_URL.to_string(),
         socket_url: DEFAULT_SOCKET_URL.to_string(),
         sources: HashMap::new(),
         watchers: Vec::new(),
         webhooks: Vec::new(),
-    })
+    }).await
 }
 
-fn initialize_config_dir(dir: &PathBuf) -> Result<(SherryConfigJSON, SherryAuthorizationConfigJSON), String> {
+async fn initialize_config_dir(dir: &PathBuf) -> Result<(SherryConfigJSON, SherryAuthorizationConfigJSON), String> {
     if !dir.exists() {
-        fs::create_dir_all(dir).map_err(str_err_prefix("Error Creating Config Dir"))?;
+        tokio::fs::create_dir_all(dir).await.map_err(str_err_prefix("Error Creating Config Dir"))?;
     }
 
-    Ok((initialize_main_config(&dir)?, initialize_auth_config(&dir)?))
+    Ok((initialize_main_config(&dir).await?, initialize_auth_config(&dir).await?))
 }
 
 #[derive(SerdeDiff, Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
@@ -183,7 +180,7 @@ pub struct SherryConfig {
     receiver: Arc<Mutex<Receiver<SherryConfigUpdateEvent>>>,
 
     watchers_debouncer: Option<Arc<Mutex<Debouncer<RecommendedWatcher, FileIdMap>>>>,
-    socket: Option<Arc<Mutex<Client>>>,
+    socket: Option<Arc<Mutex<SocketClient>>>,
 
     #[allow(dead_code)] // This values should be saved to avoid it's destroying
     debouncer: Arc<Mutex<Debouncer<RecommendedWatcher, FileIdMap>>>,
@@ -192,21 +189,30 @@ pub struct SherryConfig {
 impl SherryConfig {
     async fn set_main(&self, new_value: &SherryConfigJSON) {
         *self.data.lock().await = new_value.clone();
-        write_main_config(&self.dir, &new_value).unwrap()
     }
     async fn set_auth(&mut self, new_value: &SherryAuthorizationConfigJSON) {
         *self.auth.lock().await = new_value.clone();
-        write_auth_config(&self.dir, &new_value).unwrap();
     }
-    async fn apply_update(&mut self, update: &SherryConfigUpdateEvent) {
-        let (valid_auth, auth_revalidation_meta) = revalidate_auth(&update.new.auth, &update.old.auth);
-        let (valid_config, config_revalidation_meta) = revalidate_config(&update.new.data, &update.old.data, &valid_auth);
+    async fn commit(&self) {
+        write_main_config(&self.dir, &self.get_main().await).await.unwrap();
+        write_auth_config(&self.dir, &self.get_auth().await).await.unwrap();
+    }
 
+    async fn apply_update(&mut self, update: &SherryConfigUpdateEvent) {
+        let (valid_auth, auth_revalidation_meta) = revalidate_auth(&update.new.auth, &update.old.auth).await;
+        let (valid_config, config_revalidation_meta) = revalidate_config(&update.new.data, &update.old.data, &valid_auth).await;
+
+        let mut should_commit = false;
         if valid_auth != update.new.auth {
             self.set_auth(&valid_auth).await;
+            should_commit = true;
         }
         if valid_config != update.new.data {
             self.set_main(&valid_config).await;
+            should_commit = true;
+        }
+        if should_commit {
+            self.commit().await;
         }
 
         if update.old.data != valid_config {
@@ -237,24 +243,12 @@ impl SherryConfig {
             || !auth_revalidation_meta.invalid_users.is_empty()
         {
             log::info!("Updating socket");
-            let socket = self.clone().socket.unwrap();
-            let mut current_socket = socket.lock().await;
-            let err = current_socket.disconnect().await;
-            match err {
-                Ok(_) => {}
-                Err(e) => {
-                    log::error!("Error disconnecting socket: {}", e);
-                }
-            }
-            *current_socket = initialize_socket(
-                &valid_config.socket_url,
-                &valid_auth.records.iter().map(|(_, v)| v.access_token.clone()).collect(),
-            ).await
+            self.clone().socket.unwrap().lock().await.reconnect(self).await;
         }
     }
 
     pub async fn new(dir: &PathBuf) -> Result<SherryConfig, ()> {
-        let data = initialize_config_dir(dir);
+        let data = initialize_config_dir(dir).await;
         if data.is_err() { return Err(()); }
         let (data, auth) = data.unwrap();
 
@@ -270,8 +264,8 @@ impl SherryConfig {
         let auth_path = dir.join(AUTH_FILE);
 
         let rt = tokio::runtime::Handle::current();
-        let mut debouncer = new_debouncer(
-            Duration::from_millis(200),
+        let debouncer = new_debouncer(
+            Duration::from_millis(1000),
             None,
             move |res: DebounceEventResult| {
                 rt.block_on(async {
@@ -288,12 +282,12 @@ impl SherryConfig {
                     for event in &event {
                         for path in &event.paths {
                             if config_path.eq(path) {
-                                if let Ok(new_config) = read_main_config(&config_dir) {
+                                if let Ok(new_config) = read_main_config(&config_dir).await {
                                     new.data = new_config;
                                 }
                             }
                             if auth_path.eq(path) {
-                                if let Ok(new_config) = read_auth_config(&config_dir) {
+                                if let Ok(new_config) = read_auth_config(&config_dir).await {
                                     new.auth = new_config;
                                 }
                             }
@@ -308,8 +302,6 @@ impl SherryConfig {
                 });
             },
         ).unwrap();
-
-        debouncer.watcher().watch(dir, RecursiveMode::Recursive).unwrap();
 
         Ok(SherryConfig {
             data,
@@ -345,9 +337,10 @@ impl SherryConfig {
             new: update,
         }).await;
     }
-    pub async fn listen(self_mutex: &Arc<Mutex<SherryConfig>>, socket: &Arc<Mutex<Client>>, watcher: &Arc<Mutex<Debouncer<RecommendedWatcher, FileIdMap>>>) {
+    pub async fn listen(self_mutex: &Arc<Mutex<SherryConfig>>, socket: &Arc<Mutex<SocketClient>>, watcher: &Arc<Mutex<Debouncer<RecommendedWatcher, FileIdMap>>>) {
         async {
             let mut instance = self_mutex.lock().await;
+            { instance.debouncer.lock().await.watcher().watch(&instance.get_path(), RecursiveMode::Recursive).unwrap(); }
             instance.watchers_debouncer = Some(watcher.clone());
             instance.socket = Some(socket.clone());
             let data = instance.get_main().await;
