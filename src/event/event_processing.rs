@@ -155,7 +155,7 @@ impl EventProcessingDebounce {
         }
         let tx = self.tx.clone().unwrap();
         if let Err(e) = tx.send(event).await {
-            println!("Error sending event result: {:?}", e);
+            log::error!("Error sending event result: {:?}", e);
         }
     }
 

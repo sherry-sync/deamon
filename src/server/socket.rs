@@ -97,7 +97,7 @@ impl SocketClient {
         let data = config.get_main().await;
         let auth = config.get_auth().await;
         let ctx = HandlerContext { config: Arc::new(Mutex::new(config.clone())) };
-        let tokens = auth.records.iter().map(|(_, v)| v.access_token.clone()).collect::<Vec<String>>().join(";");
+        let tokens = auth.records.iter().filter(|(_, v)| !v.expired).map(|(_, v)| v.access_token.clone()).collect::<Vec<String>>().join(";");
         let mut res: Result<Client, Error> = Err(Error::StoppedEngineIoSocket);
         while res.is_err() {
             res = ClientBuilder::new(&data.socket_url)
@@ -115,8 +115,8 @@ impl SocketClient {
 
                 .on("error", get_cb_with_ctx(&ctx, error_handler)).connect().await;
             if res.is_err() {
-                log::warn!("Failed to connect to socket.io server, retrying in 1 minute...");
-                tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+                log::warn!("Failed to connect to socket.io server, retrying in 30 seconds...");
+                tokio::time::sleep(std::time::Duration::from_secs(30)).await;
             }
         };
         res.unwrap()

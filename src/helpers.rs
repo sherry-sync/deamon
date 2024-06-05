@@ -1,11 +1,6 @@
 use std::collections::{BTreeMap, HashMap};
 use std::ffi::OsStr;
-use std::future::Future;
 use std::path::PathBuf;
-use std::time::Duration;
-use futures::future::BoxFuture;
-use futures::FutureExt;
-use notify_debouncer_full::DebouncedEvent;
 
 use regex::Regex;
 use serde::{Serialize, Serializer};
@@ -24,8 +19,7 @@ pub fn ordered_map<S, K: Ord + Serialize, V: Serialize>(
 pub fn str_err_prefix<T: ToString + 'static>(prefix: &'static str) -> impl Fn(T) -> String {
     move |e| {
         let msg = format!("{}: {}", prefix, e.to_string());
-        println!("{}", msg);
-        log::info!("{}", msg);
+        log::error!("{}", msg);
         msg
     }
 }

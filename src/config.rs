@@ -1,11 +1,14 @@
 use std::collections::HashMap;
+use std::error::Error;
 use std::fmt::Debug;
+use std::io::Stderr;
 use std::path::{Path, PathBuf};
 use std::string::ToString;
 use std::sync::Arc;
 use std::sync::mpsc::{channel, Receiver};
 use std::time::Duration;
 
+use futures::future::err;
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use notify_debouncer_full::{DebounceEventResult, Debouncer, FileIdMap, new_debouncer};
 use serde::{Deserialize, Serialize};
@@ -16,6 +19,7 @@ use crate::auth::{initialize_auth_config, read_auth_config, revalidate_auth, She
 use crate::constants::{AUTH_FILE, CONFIG_FILE, DEFAULT_API_URL, DEFAULT_SOCKET_URL};
 use crate::files::{initialize_json_file, read_json_file, write_json_file};
 use crate::helpers::{ordered_map, str_err_prefix};
+use crate::server::api::{ApiClient, ApiFolderPermissionAccessRights, ApiFolderResponse};
 use crate::server::socket::SocketClient;
 
 #[derive(SerdeDiff, Serialize, Deserialize, Copy, Clone, Debug, Eq, PartialEq)]
@@ -71,6 +75,30 @@ async fn read_main_config(dir: &Path) -> Result<SherryConfigJSON, String> {
     read_json_file(dir.join(CONFIG_FILE)).await
 }
 
+fn response_role_to_access(role: ApiFolderPermissionAccessRights) -> AccessRights {
+    match role {
+        ApiFolderPermissionAccessRights::Read => AccessRights::Read,
+        ApiFolderPermissionAccessRights::Write => AccessRights::Write,
+        ApiFolderPermissionAccessRights::Owner => AccessRights::Owner,
+    }
+}
+
+fn response_to_folder(response: &ApiFolderResponse, user_id: &String) -> Result<SherryConfigSourceJSON, &'static str>
+{
+    Ok(SherryConfigSourceJSON {
+        id: response.sherry_id.clone(),
+        name: response.name.clone(),
+        access: response_role_to_access(response.sherry_permission.iter().find(|p| p.user_id.eq(user_id)).ok_or("Invalid folder permission")?.role),
+        user_id: user_id.clone(),
+        owner_id: response.user_id.clone(),
+        max_file_size: response.max_file_size,
+        max_dir_size: response.max_dir_size,
+        allow_dir: response.allow_dir,
+        allowed_file_names: response.allowed_file_names.iter().map(|n| n.name.clone()).collect(),
+        allowed_file_types: response.allowed_file_types.iter().map(|t| t._type.clone()).collect(),
+    })
+}
+
 struct RevalidateConfigMeta {
     pub invalid_watchers: Vec<SherryConfigWatcherJSON>,
     pub valid_watchers: Vec<SherryConfigWatcherJSON>,
@@ -80,6 +108,7 @@ struct RevalidateConfigMeta {
 
     pub valid_sources: HashMap<String, SherryConfigSourceJSON>,
     pub invalid_sources: HashMap<String, SherryConfigSourceJSON>,
+    pub updated_sources: HashMap<String, SherryConfigSourceJSON>,
 }
 
 async fn revalidate_config(new: &SherryConfigJSON, old: &SherryConfigJSON, auth: &SherryAuthorizationConfigJSON) -> (SherryConfigJSON, RevalidateConfigMeta) {
@@ -111,21 +140,51 @@ async fn revalidate_config(new: &SherryConfigJSON, old: &SherryConfigJSON, auth:
         }
     }
 
-    let current_watchers = [valid_watchers.clone(), new_watchers.clone(), updated_watchers.clone()].concat();
+    let mut current_watchers = [valid_watchers.clone(), new_watchers.clone(), updated_watchers.clone()].concat();
     let mut valid_sources: HashMap<String, SherryConfigSourceJSON> = HashMap::new();
+    let mut updated_sources: HashMap<String, SherryConfigSourceJSON> = HashMap::new();
     let mut invalid_sources: HashMap<String, SherryConfigSourceJSON> = HashMap::new();
 
     for (key, source) in new.sources.iter() {
-        if current_watchers.iter().find(|w| w.source.eq(key)).is_some() {
-            valid_sources.insert(key.clone(), source.clone());
-        } else {
-            invalid_sources.insert(key.clone(), source.clone());
+        let source = source.clone();
+
+        if current_watchers.iter().find(|w| w.source.eq(key)).is_none() {
+            invalid_sources.insert(key.clone(), source);
+            continue;
+        }
+
+        match ApiClient::new(&new.api_url, &auth.records.get(&source.user_id).unwrap().access_token).get_folder(&source.id).await {
+            Ok(folder) => {
+                match response_to_folder(&folder, &source.user_id) {
+                    Ok(actual_source) => {
+                        if actual_source != source {
+                            updated_sources.insert(key.clone(), actual_source);
+                        } else {
+                            valid_sources.insert(key.clone(), actual_source);
+                        }
+                    }
+                    Err(_) => {
+                        invalid_sources.insert(key.clone(), source);
+                    }
+                }
+            }
+            Err(_) => {
+                invalid_sources.insert(key.clone(), source);
+                current_watchers.retain(|w| {
+                    if w.source.eq(key) {
+                        invalid_watchers.push(w.clone());
+                        false
+                    } else {
+                        true
+                    }
+                });
+            }
         }
     }
 
     let mut valid_config = new.clone();
     valid_config.watchers = current_watchers;
-    valid_config.sources = valid_sources.clone();
+    valid_config.sources = valid_sources.clone().into_iter().chain(updated_sources.clone()).collect();
 
     (
         valid_config,
@@ -138,6 +197,7 @@ async fn revalidate_config(new: &SherryConfigJSON, old: &SherryConfigJSON, auth:
 
             valid_sources,
             invalid_sources,
+            updated_sources,
         }
     )
 }
@@ -199,7 +259,7 @@ impl SherryConfig {
     }
 
     async fn apply_update(&mut self, update: &SherryConfigUpdateEvent) {
-        let (valid_auth, auth_revalidation_meta) = revalidate_auth(&update.new.auth, &update.old.auth).await;
+        let (valid_auth, auth_revalidation_meta) = revalidate_auth(&update.new.auth, &update.old.auth, &update.new.data).await;
         let (valid_config, config_revalidation_meta) = revalidate_config(&update.new.data, &update.old.data, &valid_auth).await;
 
         let mut should_commit = false;
@@ -284,11 +344,15 @@ impl SherryConfig {
                             if config_path.eq(path) {
                                 if let Ok(new_config) = read_main_config(&config_dir).await {
                                     new.data = new_config;
+                                } else {
+                                    let _ = write_main_config(&config_dir, &old.data).await;
                                 }
                             }
                             if auth_path.eq(path) {
                                 if let Ok(new_config) = read_auth_config(&config_dir).await {
                                     new.auth = new_config;
+                                } else {
+                                    let _ = write_auth_config(&config_dir, &old.auth).await;
                                 }
                             }
                         }

@@ -6,3 +6,5 @@ pub const LOGS_DIR: &str = "logs";
 pub const CONFIG_FILE: &str = "config.json";
 pub const AUTH_FILE: &str = "auth.json";
 pub const HASHES_DIR: &str = "hashes";
+pub const EXPIRATION_THRESHOLD: i32 = 604800; // 1 week in seconds
+
