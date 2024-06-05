@@ -18,6 +18,7 @@ mod helpers;
 mod constants;
 mod server;
 mod files;
+mod watchers;
 
 #[derive(Parser)]
 struct Args {

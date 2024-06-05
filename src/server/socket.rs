@@ -27,68 +27,73 @@ struct HandlerContext {
     config: Arc<Mutex<SherryConfig>>,
 }
 
-fn folder_created_handler(ctx: &HandlerContext, payload: Payload, socket: Client) -> BoxFuture<'static, ()> {
-    log::info!("Folder Created: {:?}", payload);
-
+fn folder_created_handler<'a>(ctx: Arc<HandlerContext>, payload: Payload, socket: Client) -> BoxFuture<'a, ()> {
     async move {}.boxed()
 }
 
-fn folder_updated_handler(ctx: &HandlerContext, payload: Payload, socket: Client) -> BoxFuture<'static, ()> {
+fn folder_updated_handler<'a>(ctx: Arc<HandlerContext>, payload: Payload, socket: Client) -> BoxFuture<'a, ()> {
     log::info!("Folder Updated: {:?}", payload);
 
-    async move {}.boxed()
+    async move {
+        ctx.config.lock().await.revalidate().await;
+    }.boxed()
 }
 
-fn folder_deleted_handler(ctx: &HandlerContext, payload: Payload, socket: Client) -> BoxFuture<'static, ()> {
+fn folder_deleted_handler<'a>(ctx: Arc<HandlerContext>, payload: Payload, socket: Client) -> BoxFuture<'a, ()> {
     log::info!("Folder Deleted: {:?}", payload);
 
-    async move {}.boxed()
+    async move {
+        ctx.config.lock().await.revalidate().await;
+    }.boxed()
 }
 
-
-fn folder_permission_granted_handler(ctx: &HandlerContext, payload: Payload, socket: Client) -> BoxFuture<'static, ()> {
+fn folder_permission_granted_handler<'a>(ctx: Arc<HandlerContext>, payload: Payload, socket: Client) -> BoxFuture<'a, ()> {
     log::info!("Folder Permission Granted: {:?}", payload);
 
-    async move {}.boxed()
+    async move {
+        ctx.config.lock().await.revalidate().await;
+    }.boxed()
 }
 
-fn folder_permission_revoked_handler(ctx: &HandlerContext, payload: Payload, socket: Client) -> BoxFuture<'static, ()> {
+fn folder_permission_revoked_handler<'a>(ctx: Arc<HandlerContext>, payload: Payload, socket: Client) -> BoxFuture<'a, ()> {
     log::info!("Folder Permission Revoked: {:?}", payload);
 
-    async move {}.boxed()
+    async move {
+        ctx.config.lock().await.revalidate().await;
+    }.boxed()
 }
 
 
-fn folder_file_created_handler(ctx: &HandlerContext, payload: Payload, socket: Client) -> BoxFuture<'static, ()> {
+fn folder_file_created_handler<'a>(ctx: Arc<HandlerContext>, payload: Payload, socket: Client) -> BoxFuture<'a, ()> {
     log::info!("Folder File Created: {:?}", payload);
 
     async move {}.boxed()
 }
 
-fn folder_file_updated_handler(ctx: &HandlerContext, payload: Payload, socket: Client) -> BoxFuture<'static, ()> {
+fn folder_file_updated_handler<'a>(ctx: Arc<HandlerContext>, payload: Payload, socket: Client) -> BoxFuture<'a, ()> {
     log::info!("Folder File Updated: {:?}", payload);
 
     async move {}.boxed()
 }
 
-fn folder_file_deleted_handler(ctx: &HandlerContext, payload: Payload, socket: Client) -> BoxFuture<'static, ()> {
+fn folder_file_deleted_handler<'a>(ctx: Arc<HandlerContext>, payload: Payload, socket: Client) -> BoxFuture<'a, ()> {
     log::info!("Folder File Deleted: {:?}", payload);
 
     async move {}.boxed()
 }
 
 
-fn error_handler(ctx: &HandlerContext, payload: Payload, socket: Client) -> BoxFuture<'static, ()> {
+fn error_handler<'a>(ctx: Arc<HandlerContext>, payload: Payload, socket: Client) -> BoxFuture<'a, ()> {
     log::error!("Socket Error: {:?}", payload);
 
     async move {}.boxed()
 }
 
 
-fn get_cb_with_ctx(ctx: &HandlerContext, cb: fn(&HandlerContext, Payload, Client) -> BoxFuture<'static, ()>) -> impl Fn(Payload, Client) -> BoxFuture<'static, ()> {
-    let ctx = ctx.clone();
+fn get_cb_with_ctx<'a>(ctx: &HandlerContext, cb: fn(Arc<HandlerContext>, Payload, Client) -> BoxFuture<'a, ()>) -> impl Fn(Payload, Client) -> BoxFuture<'a, ()> {
+    let ctx = Arc::new(ctx.clone());
     move |payload: Payload, socket: Client| {
-        cb(&ctx, payload, socket)
+        cb(ctx.clone(), payload, socket)
     }
 }
 
