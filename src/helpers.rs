@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, HashMap};
 use std::ffi::OsStr;
 use std::path::PathBuf;
+use std::time::SystemTime;
 
 use regex::Regex;
 use serde::{Serialize, Serializer};
@@ -35,4 +36,12 @@ pub fn normalize_path(p: &PathBuf) -> PathBuf {
                     .to_str().unwrap(),
                 PATH_SEP).to_string()
     )
+}
+
+pub fn get_now() -> i32 {
+    SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs() as i32
+}
+
+pub fn get_now_as_millis() -> i128 {
+    SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_millis() as i128
 }

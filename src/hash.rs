@@ -8,8 +8,15 @@ use serde_diff::SerdeDiff;
 
 use crate::config::SherryConfigSourceJSON;
 use crate::constants::HASHES_DIR;
-use crate::helpers::{normalize_path, ordered_map, str_err_prefix};
 use crate::files::{initialize_json_file_with, write_json_file};
+use crate::helpers::{get_now_as_millis, normalize_path, ordered_map, str_err_prefix};
+
+#[derive(SerdeDiff, Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct FileHashJSON {
+    pub hash: String,
+    pub timestamp: i128,
+}
 
 #[derive(SerdeDiff, Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -18,7 +25,7 @@ pub struct WatcherHashJSON {
     pub source_id: String,
     pub local_path: String,
     #[serde(serialize_with = "ordered_map")]
-    pub hashes: HashMap<String, String>,
+    pub hashes: HashMap<String, FileHashJSON>,
 }
 
 pub async fn get_file_hash(path: &PathBuf) -> String {
@@ -48,7 +55,10 @@ async fn build_hashes(hashes_id: &String, source: &SherryConfigSourceJSON, local
             .filter(|v: &GlobResult| v.as_ref().unwrap().is_file())
             .map(|v| async move {
                 let res = normalize_path(&v.unwrap());
-                (res.to_str().unwrap().to_string(), get_file_hash(&res).await)
+                (res.to_str().unwrap().to_string(), FileHashJSON {
+                    hash: get_file_hash(&res).await,
+                    timestamp: get_now_as_millis(),
+                })
             })).await.into_iter().collect(),
     }
 }

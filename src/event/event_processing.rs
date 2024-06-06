@@ -4,14 +4,15 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use notify_debouncer_full::DebouncedEvent;
-use tokio::sync::Mutex;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::Sender;
+use tokio::sync::Mutex;
 use tokio::time::Instant;
 
 use crate::config::{AccessRights, SherryConfigWatcherJSON};
-use crate::event::file_event::{complete_events, filter_events, get_sync_events, minify_results, optimize_events, log_events, SyncEvent, SyncEventKind};
-use crate::hash::{get_hashes, update_hashes};
+use crate::event::file_event::{complete_events, filter_events, get_sync_events, log_events, minify_results, optimize_events, SyncEvent, SyncEventKind};
+use crate::hash::{FileHashJSON, get_hashes, update_hashes};
+use crate::helpers::{get_now_as_millis};
 
 pub async fn process_result(app: crate::app::App, source_id: &String, results: &Vec<BasedDebounceEvent>) {
     let dir = app.config.lock().await.get_path();
@@ -30,7 +31,7 @@ pub async fn process_result(app: crate::app::App, source_id: &String, results: &
     if source.access == AccessRights::Read {
         return;
     }
-    
+
     let events = &minify_results(&results)
         .iter()
         .flat_map(|r| get_sync_events(&source, r))
@@ -66,13 +67,14 @@ pub async fn process_result(app: crate::app::App, source_id: &String, results: &
         match e.kind {
             SyncEventKind::Delete => {
                 to_update.hashes.remove(&e.local_path.to_str().unwrap().to_string());
+                to_update.hashes.insert(e.local_path.to_str().unwrap().to_string(), FileHashJSON { hash: "".to_string(), timestamp: get_now_as_millis() });
             }
             SyncEventKind::Rename => {
                 to_update.hashes.remove(&e.old_local_path.to_str().unwrap().to_string());
-                to_update.hashes.insert(e.local_path.to_str().unwrap().to_string(), e.update_hash);
+                to_update.hashes.insert(e.local_path.to_str().unwrap().to_string(), FileHashJSON { hash: e.update_hash, timestamp: get_now_as_millis() });
             }
             _ => {
-                to_update.hashes.insert(e.local_path.to_str().unwrap().to_string(), e.update_hash);
+                to_update.hashes.insert(e.local_path.to_str().unwrap().to_string(), FileHashJSON { hash: e.update_hash, timestamp: get_now_as_millis() });
             }
         }
 

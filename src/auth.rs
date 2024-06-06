@@ -8,7 +8,7 @@ use serde_diff::SerdeDiff;
 use crate::config::SherryConfigJSON;
 use crate::constants::{AUTH_FILE, EXPIRATION_THRESHOLD};
 use crate::files::{initialize_json_file, read_json_file, write_json_file};
-use crate::helpers::ordered_map;
+use crate::helpers::{get_now, ordered_map};
 use crate::server::api::{ApiAuthResponse, ApiClient};
 
 #[derive(SerdeDiff, Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
@@ -69,7 +69,7 @@ pub struct RevalidateAuthMeta {
 pub async fn revalidate_auth(new: &SherryAuthorizationConfigJSON, old: &SherryAuthorizationConfigJSON, config: &SherryConfigJSON) -> (SherryAuthorizationConfigJSON, RevalidateAuthMeta) {
     let mut auth = new.clone();
     let api_url = &config.api_url;
-    let now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs() as i32;
+    let now = get_now();
 
     if auth.records.iter().find(|(_, u)| u.user_id == auth.default).is_none() {
         auth.default = "".to_string();

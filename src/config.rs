@@ -260,8 +260,8 @@ pub struct SherryConfig {
     dir: PathBuf,
     receiver: Arc<Mutex<Receiver<SherryConfigUpdateEvent>>>,
 
-    watchers_debouncer: Option<Arc<Mutex<Debouncer<RecommendedWatcher, FileIdMap>>>>,
-    socket: Option<Arc<Mutex<SocketClient>>>,
+    watchers_debouncer: Arc<Mutex<Option<Arc<Mutex<Debouncer<RecommendedWatcher, FileIdMap>>>>>>,
+    socket: Arc<Mutex<Option<Arc<Mutex<SocketClient>>>>>,
 
     debouncer: Arc<Mutex<Debouncer<RecommendedWatcher, FileIdMap>>>,
 }
@@ -298,8 +298,8 @@ impl SherryConfig {
         if update.old.data != valid_config {
             log::info!("Updating watchers");
 
-            let arc = self.clone().watchers_debouncer.unwrap();
-            let mut debouncer = arc.lock().await;
+            let debouncer = self.get_data_debouncer().await;
+            let mut debouncer = debouncer.lock().await;
             let watcher = debouncer.watcher();
 
             for w in [
@@ -323,7 +323,7 @@ impl SherryConfig {
             || !auth_revalidation_meta.invalid_users.is_empty()
         {
             log::info!("Updating socket");
-            self.clone().socket.unwrap().lock().await.reconnect(self).await;
+            self.get_socket().await.lock().await.reconnect().await;
         }
     }
     pub async fn new(dir: &PathBuf) -> Result<SherryConfig, ()> {
@@ -392,8 +392,8 @@ impl SherryConfig {
             dir: dir.clone(),
             receiver: Arc::new(Mutex::new(rx)),
 
-            watchers_debouncer: None,
-            socket: None,
+            watchers_debouncer: Arc::new(Mutex::new(None)),
+            socket: Arc::new(Mutex::new(None)),
 
             debouncer: Arc::new(Mutex::new(debouncer)),
         })
@@ -403,6 +403,14 @@ impl SherryConfig {
     }
     pub async fn get_auth(&self) -> SherryAuthorizationConfigJSON {
         self.auth.lock().await.clone()
+    }
+    async fn get_data_debouncer(&self) -> Arc<Mutex<Debouncer<RecommendedWatcher, FileIdMap>>> {
+        let a = self.watchers_debouncer.lock().await;
+        a.clone().unwrap()
+    }
+    async fn get_socket(&self) -> Arc<Mutex<SocketClient>> {
+        let a = self.socket.lock().await;
+        a.clone().unwrap()
     }
     pub fn get_path(&self) -> PathBuf {
         self.dir.clone()
@@ -420,27 +428,40 @@ impl SherryConfig {
             new: update,
         }, false).await;
     }
+    pub async fn reinitialize(&mut self) {
+        log::info!("Reinitialize state");
+        {
+            let debouncer = self.get_data_debouncer().await;
+            let mut debouncer = debouncer.lock().await;
+            let data_watcher = debouncer.watcher();
+            self.get_main().await.watchers.iter().for_each(|w| {
+                let _ = data_watcher.unwatch(Path::new(&w.local_path));
+            });
+        }
+
+        let data = self.get_main().await;
+        let auth = self.get_auth().await;
+        self.apply_update(&SherryConfigUpdateEvent {
+            old: SherryConfigUpdateData {
+                data: SherryConfigJSON {
+                    api_url: "".to_string(),
+                    socket_url: "".to_string(),
+                    sources: Default::default(),
+                    watchers: vec![],
+                    webhooks: vec![],
+                },
+                auth: SherryAuthorizationConfigJSON { default: "".to_string(), records: Default::default() },
+            },
+            new: SherryConfigUpdateData { data, auth },
+        }, true).await;
+    }
     pub async fn listen(self_mutex: &Arc<Mutex<SherryConfig>>, socket: &Arc<Mutex<SocketClient>>, watcher: &Arc<Mutex<Debouncer<RecommendedWatcher, FileIdMap>>>) {
         async {
             let mut instance = self_mutex.lock().await;
             { instance.debouncer.lock().await.watcher().watch(&instance.get_path(), RecursiveMode::Recursive).unwrap(); }
-            instance.watchers_debouncer = Some(watcher.clone());
-            instance.socket = Some(socket.clone());
-            let data = instance.get_main().await;
-            let auth = instance.get_auth().await;
-            instance.apply_update(&SherryConfigUpdateEvent {
-                old: SherryConfigUpdateData {
-                    data: SherryConfigJSON {
-                        api_url: "".to_string(),
-                        socket_url: "".to_string(),
-                        sources: Default::default(),
-                        watchers: vec![],
-                        webhooks: vec![],
-                    },
-                    auth: SherryAuthorizationConfigJSON { default: "".to_string(), records: Default::default() },
-                },
-                new: SherryConfigUpdateData { data, auth },
-            }, true).await;
+            *instance.watchers_debouncer.lock().await = Some(watcher.clone());
+            *instance.socket.lock().await = Some(socket.clone());
+            instance.reinitialize().await
         }.await;
         let receiver = async {
             let config = self_mutex.lock().await;
