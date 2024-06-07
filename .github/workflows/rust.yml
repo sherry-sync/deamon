@@ -26,13 +26,12 @@ jobs:
         draft: false
         prerelease: false
     outputs:
-      upload_url: ${{ steps.create_release.output_url }}
+      upload_url: ${{ steps.create_release.upload_url }}
 
   build-windows:
     runs-on: windows-latest
     needs: create_release
     steps:
-    - run: echo ${{ needs.create_release.outputs.upload_url }}
     - uses: actions/checkout@v4
     - name: Build
       run: cargo build --release
