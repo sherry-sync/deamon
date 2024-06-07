@@ -12,17 +12,15 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build:
-
-    runs-on: ubuntu-latest
-
+  build-windows:
+    runs-on: windows-latest
     steps:
     - uses: actions/checkout@v4
     - name: Build
       run: cargo build --release
     - name: Create Release
       id: create_release
-      uses: actions/create-release@v1
+      uses: actions/create-release@latest
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
@@ -32,11 +30,11 @@ jobs:
         prerelease: false
     - name: Upload Release Asset
       id: upload-release-asset 
-      uses: actions/upload-release-asset@v1
+      uses: actions/upload-release-asset@latest
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         upload_url: ${{ steps.create_release.outputs.upload_url }} 
-        asset_path: ./my-artifact.zip
-        asset_name: my-artifact.zip
-        asset_content_type: application/zip
+        asset_path: ./target/release/sherry-demon.exe
+        asset_name: sherry-demon.exe
+        asset_content_type: application/vnd.microsoft.portable-executable
