@@ -12,12 +12,9 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build-windows:
-    runs-on: windows-latest
+  create-release:
+    runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
-    - name: Build
-      run: cargo build --release
     - name: Create Release
       id: create_release
       uses: actions/create-release@latest
@@ -28,6 +25,15 @@ jobs:
         release_name: Release ${{ github.ref }}
         draft: false
         prerelease: false
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Build
+      run: cargo build --release
+    - uses: create-release
+      id: create_release
     - name: Upload Release Asset
       id: upload-release-asset 
       uses: actions/upload-release-asset@latest
@@ -45,16 +51,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build
         run: cargo build --release
-      - name: Create Release
+      - uses: create-release
         id: create_release
-        uses: actions/create-release@latest
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ github.ref }}
-          release_name: Release ${{ github.ref }}
-          draft: false
-          prerelease: false
       - name: Upload Release Asset
         id: upload-release-asset
         uses: actions/upload-release-asset@latest
@@ -72,16 +70,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build
         run: cargo build --release
-      - name: Create Release
+      - uses: create-release
         id: create_release
-        uses: actions/create-release@latest
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ github.ref }}
-          release_name: Release ${{ github.ref }}
-          draft: false
-          prerelease: false
       - name: Upload Release Asset
         id: upload-release-asset
         uses: actions/upload-release-asset@latest
