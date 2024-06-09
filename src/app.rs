@@ -28,8 +28,8 @@ pub struct App {
 }
 
 impl App {
-    pub async fn new(config_dir: &PathBuf) -> Result<App, ()> {
-        initialize_logs(config_dir);
+    pub async fn new(config_dir: &PathBuf, silent: bool) -> Result<App, ()> {
+        initialize_logs(config_dir, silent);
 
         log::info!("Using configuration from: {:?}", config_dir);
         log::info!("Using recommended watcher: {:?}", RecommendedWatcher::kind());

@@ -6,7 +6,7 @@ use home::home_dir;
 use path_clean::PathClean;
 
 use crate::app::App;
-use crate::constants::CONFIG_DIR;
+use crate::constants::{CONFIG_DIR, ENV_CONFIG_DIR};
 
 mod event;
 mod config;
@@ -24,6 +24,9 @@ mod watchers;
 struct Args {
     #[arg(short, long, default_missing_value = None)]
     config: Option<String>,
+
+    #[arg(short, long, action = clap::ArgAction::SetTrue)]
+    silent: Option<bool>,
 }
 
 fn resolve_config_dir(config: Option<String>) -> PathBuf {
@@ -36,7 +39,13 @@ fn resolve_config_dir(config: Option<String>) -> PathBuf {
                 env::current_dir().unwrap().join(path)
             }.clean()
         }
-        None => home_dir().unwrap().join(CONFIG_DIR)
+        None => {
+            if let Ok(res) = env::var(ENV_CONFIG_DIR) {
+                PathBuf::from(res)
+            } else {
+                home_dir().unwrap().join(CONFIG_DIR)
+            }
+        }
     }
 }
 
@@ -46,7 +55,7 @@ async fn main() -> Result<(), String> {
 
     let config_dir = resolve_config_dir(args.config);
 
-    let app = App::new(&config_dir).await;
+    let app = App::new(&config_dir, args.silent.unwrap_or(false)).await;
     if app.is_err() { return Err("Demon start failed".to_string()); }
     let mut app = app.unwrap();
 

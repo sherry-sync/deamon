@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::env;
 use std::fmt::Debug;
 use std::path::{Path, PathBuf};
 use std::string::ToString;
@@ -13,7 +14,7 @@ use serde_diff::SerdeDiff;
 use tokio::sync::Mutex;
 
 use crate::auth::{initialize_auth_config, read_auth_config, revalidate_auth, SherryAuthorizationConfigJSON, write_auth_config};
-use crate::constants::{AUTH_FILE, CONFIG_FILE, DEFAULT_API_URL, DEFAULT_SOCKET_URL};
+use crate::constants::{AUTH_FILE, CONFIG_FILE, DEFAULT_API_URL, DEFAULT_SOCKET_URL, ENV_API_URL, ENV_SOCKET_URL};
 use crate::files::{initialize_json_file, read_json_file, write_json_file};
 use crate::helpers::{ordered_map, str_err_prefix};
 use crate::server::api::{ApiClient, ApiFolderPermissionAccessRights, ApiFolderResponse};
@@ -225,8 +226,8 @@ async fn revalidate_config(new: &SherryConfigJSON, old: &SherryConfigJSON, auth:
 
 async fn initialize_main_config(dir: &Path) -> Result<SherryConfigJSON, String> {
     initialize_json_file(dir.join(CONFIG_FILE), SherryConfigJSON {
-        api_url: DEFAULT_API_URL.to_string(),
-        socket_url: DEFAULT_SOCKET_URL.to_string(),
+        api_url: env::var(ENV_API_URL).unwrap_or(DEFAULT_API_URL.to_string()),
+        socket_url: env::var(ENV_SOCKET_URL).unwrap_or(DEFAULT_SOCKET_URL.to_string()),
         sources: HashMap::new(),
         watchers: Vec::new(),
         webhooks: Vec::new(),
