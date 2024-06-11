@@ -27,3 +27,4 @@ reqwest = { version = "0.12.4", features = ["stream", "multipart", "json"] }
 rust_socketio = { version = "0.6.0", features = ["async"] }
 tokio-util = { version = "0.7.3", features = ["codec"] }
 anyhow = "1.0.80"
+futures-core = "0.3.30"

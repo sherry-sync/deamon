@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::fs;
+use tokio::fs;
 use std::path::PathBuf;
 
 use glob::{glob, GlobResult};
@@ -16,6 +16,7 @@ use crate::helpers::{get_now_as_millis, normalize_path, ordered_map, str_err_pre
 pub struct FileHashJSON {
     pub hash: String,
     pub timestamp: i128,
+    pub size: u64,
 }
 
 #[derive(SerdeDiff, Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
@@ -58,6 +59,7 @@ async fn build_hashes(hashes_id: &String, source: &SherryConfigSourceJSON, local
                 (res.to_str().unwrap().to_string(), FileHashJSON {
                     hash: get_file_hash(&res).await,
                     timestamp: get_now_as_millis(),
+                    size: res.metadata().unwrap().len(),
                 })
             })).await.into_iter().collect(),
     }
@@ -65,10 +67,18 @@ async fn build_hashes(hashes_id: &String, source: &SherryConfigSourceJSON, local
 
 pub async fn get_hashes(dir: &PathBuf, source: &SherryConfigSourceJSON, local_path: &PathBuf, hashes_id: &String) -> Result<WatcherHashJSON, String> {
     let hashes_dir = dir.join(HASHES_DIR);
-    fs::create_dir_all(&hashes_dir).map_err(str_err_prefix("Error hashes dir creation"))?;
+    fs::create_dir_all(&hashes_dir).await.map_err(str_err_prefix("Error hashes dir creation"))?;
     initialize_json_file_with(&hashes_dir.join(format!("{}.json", hashes_id)), &|| async { build_hashes(hashes_id, source, local_path).await }).await
 }
 
 pub async fn update_hashes(dir: &PathBuf, hashes: &WatcherHashJSON) -> Result<(), String> {
     write_json_file(dir.join(HASHES_DIR).join(format!("{}.json", hashes.id)), hashes).await
+}
+
+pub async fn recreate_hashes(dir: &PathBuf, hashes_id: &String, source: &SherryConfigSourceJSON, local_path: &PathBuf) -> Result<WatcherHashJSON, String> {
+    let hashes_dir = dir.join(HASHES_DIR);
+    fs::create_dir_all(&hashes_dir).await.map_err(str_err_prefix("Error hashes dir creation"))?;
+    let hashes = build_hashes(hashes_id, source, local_path).await;
+    write_json_file(&hashes_dir.join(format!("{}.json", hashes_id)), &hashes).await?;
+    Ok(hashes)
 }

@@ -1,10 +1,12 @@
 use std::future::Future;
 use std::path::Path;
 
+use futures::{Stream, StreamExt};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use tokio::fs;
-use tokio::io::AsyncReadExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio_util::bytes::Bytes;
 
 use crate::helpers::str_err_prefix;
 
@@ -62,4 +64,18 @@ pub async fn initialize_json_file_with<T, P: AsRef<Path>, C, Fut>(path: P, defau
             Ok(value)
         }
     }
+}
+
+pub async fn write_file_from_stream(path: impl AsRef<Path>, mut stream: impl Stream<Item = Result<Bytes, reqwest::Error>> + Unpin) -> Result<(), String> {
+    let mut file = fs::File::create(path).await.map_err(str_err_prefix("Error File Create"))?;
+    while let Some(chunk_result) = stream.next().await {
+        let chunk = chunk_result.map_err(str_err_prefix("Invalid chunk"))?;
+        file.write_all(&chunk).await.map_err(str_err_prefix("Error Write"))?;
+    }
+    Ok(())
+}
+
+pub async fn delete_file(path: impl AsRef<Path>) -> Result<(), String> {
+    fs::remove_file(path).await.map_err(str_err_prefix("Error File Remove"))?;
+    Ok(())
 }

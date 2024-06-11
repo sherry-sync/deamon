@@ -61,6 +61,12 @@ fn folder_file_updated_handler<'a>(ctx: Context, payload: Payload, socket: Clien
     async move {}.boxed()
 }
 
+fn folder_file_rename_handler<'a>(ctx: Context, payload: Payload, socket: Client) -> BoxFuture<'a, ()> {
+    log::info!("Folder File Renamed: {:?}", payload);
+
+    async move {}.boxed()
+}
+
 fn folder_file_deleted_handler<'a>(ctx: Context, payload: Payload, socket: Client) -> BoxFuture<'a, ()> {
     log::info!("Folder File Deleted: {:?}", payload);
 
@@ -84,7 +90,7 @@ fn reconnect_handler<'a>(ctx: Context) -> BoxFuture<'a, ReconnectSettings> {
             let a = client.config.lock().await;
             a.clone()
         };
-        
+
         config.reinitialize().await;
         ReconnectSettings::new()
     }.boxed()
@@ -137,6 +143,7 @@ impl SocketClient {
 
                 .on("FOLDER:FILE:CREATED", get_cb_with_ctx(&ctx, folder_file_created_handler))
                 .on("FOLDER:FILE:UPDATED", get_cb_with_ctx(&ctx, folder_file_updated_handler))
+                .on("FOLDER:FILE:RENAME", get_cb_with_ctx(&ctx, folder_file_rename_handler))
                 .on("FOLDER:FILE:DELETED", get_cb_with_ctx(&ctx, folder_file_deleted_handler))
 
                 .on("error", get_cb_with_ctx(&ctx, error_handler))

@@ -12,11 +12,13 @@ use tokio::time::Instant;
 use crate::config::{AccessRights, SherryConfigWatcherJSON};
 use crate::event::file_event::{complete_events, filter_events, get_sync_events, log_events, minify_results, optimize_events, SyncEvent, SyncEventKind};
 use crate::hash::{FileHashJSON, get_hashes, update_hashes};
-use crate::helpers::{get_now_as_millis};
+use crate::helpers::get_now_as_millis;
+use crate::server::api::ApiClient;
 
 pub async fn process_result(app: crate::app::App, source_id: &String, results: &Vec<BasedDebounceEvent>) {
     let dir = app.config.lock().await.get_path();
     let config = app.config.lock().await.get_main().await;
+    let auth = app.config.lock().await.get_auth().await;
 
     let source = config.sources.get(source_id);
     if source.is_none() {
@@ -63,24 +65,44 @@ pub async fn process_result(app: crate::app::App, source_id: &String, results: &
             }
         };
 
+        match hashes.hashes.get(&e.local_path.to_str().unwrap().to_string()) {
+            Some(h) => {
+                if h.hash == e.update_hash {
+                    continue;
+                }
+            }
+            _ => {}
+        }
+
         let mut to_update = updated_hashes.entry(base.clone()).or_insert(hashes.clone());
         match e.kind {
             SyncEventKind::Delete => {
                 to_update.hashes.remove(&e.local_path.to_str().unwrap().to_string());
-                to_update.hashes.insert(e.local_path.to_str().unwrap().to_string(), FileHashJSON { hash: "".to_string(), timestamp: get_now_as_millis() });
+                to_update.hashes.insert(e.local_path.to_str().unwrap().to_string(), FileHashJSON { hash: "".to_string(), timestamp: get_now_as_millis(), size: 0 });
             }
             SyncEventKind::Rename => {
                 to_update.hashes.remove(&e.old_local_path.to_str().unwrap().to_string());
-                to_update.hashes.insert(e.local_path.to_str().unwrap().to_string(), FileHashJSON { hash: e.update_hash, timestamp: get_now_as_millis() });
+                to_update.hashes.insert(e.local_path.to_str().unwrap().to_string(), FileHashJSON { hash: e.update_hash.clone(), timestamp: get_now_as_millis(), size: e.size });
             }
             _ => {
-                to_update.hashes.insert(e.local_path.to_str().unwrap().to_string(), FileHashJSON { hash: e.update_hash, timestamp: get_now_as_millis() });
+                to_update.hashes.insert(e.local_path.to_str().unwrap().to_string(), FileHashJSON { hash: e.update_hash.clone(), timestamp: get_now_as_millis(), size: e.size });
             }
         }
 
-        // Validate by API
+        let client = ApiClient::new(&config.api_url, &auth.records.get(&source.id).unwrap().access_token);
 
-        // Send update
+        match client.check_file(&e).await {
+            Ok(res) => {
+                if res.status() != 200 {
+                    continue;
+                }
+            }
+            Err(_) => {
+                continue;
+            }
+        }
+
+        client.send_file(&e).await.ok();
     }
     for (k, v) in updated_hashes {
         if *hashes_map.get(&k).unwrap() != v {

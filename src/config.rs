@@ -110,7 +110,7 @@ struct RevalidateConfigMeta {
     pub updated_sources: HashMap<String, SherryConfigSourceJSON>,
 }
 
-async fn revalidate_config(new: &SherryConfigJSON, old: &SherryConfigJSON, auth: &SherryAuthorizationConfigJSON, is_init: bool) -> (SherryConfigJSON, RevalidateConfigMeta) {
+async fn revalidate_config(new: &SherryConfigJSON, old: &SherryConfigJSON, auth: &SherryAuthorizationConfigJSON, is_init: bool, dir: &PathBuf) -> (SherryConfigJSON, RevalidateConfigMeta) {
     let mut invalid_watchers: Vec<SherryConfigWatcherJSON> = vec![];
     let mut valid_watchers: Vec<SherryConfigWatcherJSON> = vec![];
     let mut new_watchers: Vec<SherryConfigWatcherJSON> = vec![];
@@ -182,6 +182,8 @@ async fn revalidate_config(new: &SherryConfigJSON, old: &SherryConfigJSON, auth:
     }
 
     let actualize_result = actualize_watchers(
+        dir,
+        new,
         &auth.records,
         &valid_sources,
         &match is_init {
@@ -281,7 +283,7 @@ impl SherryConfig {
 
     async fn apply_update(&mut self, update: &SherryConfigUpdateEvent, is_init: bool) {
         let (valid_auth, auth_revalidation_meta) = revalidate_auth(&update.new.auth, &update.old.auth, &update.new.data).await;
-        let (valid_config, config_revalidation_meta) = revalidate_config(&update.new.data, &update.old.data, &valid_auth, is_init).await;
+        let (valid_config, config_revalidation_meta) = revalidate_config(&update.new.data, &update.old.data, &valid_auth, is_init, &self.get_path()).await;
 
         let mut should_commit = false;
         if valid_auth != update.new.auth {

@@ -15,7 +15,7 @@ use notify_debouncer_full::DebouncedEvent;
 use crate::config::SherryConfigSourceJSON;
 use crate::event::event_processing::BasedDebounceEvent;
 use crate::hash::get_file_hash;
-use crate::helpers::{normalize_path, PATH_SEP};
+use crate::helpers::{get_now_as_millis, normalize_path, PATH_SEP};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum SyncEventKind {
@@ -55,7 +55,7 @@ pub struct SyncEvent {
     pub old_sync_path: String,
     pub update_hash: String,
     pub size: u64,
-    pub timestamp: SystemTime,
+    pub timestamp: i128,
 }
 
 pub fn log_events(name: &str, events: &Vec<SyncEvent>) {
@@ -144,7 +144,7 @@ pub fn minify_results(results: &Vec<BasedDebounceEvent>) -> Vec<BasedDebounceEve
     new_results
 }
 
-fn get_sync_path(path: &PathBuf, base: &PathBuf) -> String {
+pub fn get_sync_path(path: &PathBuf, base: &PathBuf) -> String {
     normalize_path(&PathBuf::from(path
         .strip_prefix(base).unwrap()
         .iter().collect::<Vec<&OsStr>>()
@@ -168,7 +168,7 @@ fn get_dir_file_events(config: &SherryConfigSourceJSON, path: &PathBuf, base: &P
             sync_path,
             update_hash: "".to_string(),
             size: 0,
-            timestamp: SystemTime::now(),
+            timestamp: get_now_as_millis(),
         });
     } else if path.is_dir() {
         match path.read_dir() {
@@ -224,7 +224,7 @@ pub fn get_sync_events(config: &SherryConfigSourceJSON, result: &BasedDebounceEv
                         old_local_path,
                         sync_path,
                         old_sync_path,
-                        timestamp: SystemTime::now(),
+                        timestamp: get_now_as_millis(),
                     });
                 }
             }
@@ -243,7 +243,7 @@ pub fn get_sync_events(config: &SherryConfigSourceJSON, result: &BasedDebounceEv
                     old_local_path,
                     sync_path,
                     old_sync_path,
-                    timestamp: SystemTime::now(),
+                    timestamp: get_now_as_millis(),
                 });
             }
             _ => {}
@@ -267,7 +267,7 @@ pub fn get_sync_events(config: &SherryConfigSourceJSON, result: &BasedDebounceEv
                         old_local_path,
                         sync_path,
                         old_sync_path,
-                        timestamp: SystemTime::now(),
+                        timestamp: get_now_as_millis(),
                     })
                 }
                 _ => {
@@ -282,7 +282,7 @@ pub fn get_sync_events(config: &SherryConfigSourceJSON, result: &BasedDebounceEv
                         old_local_path,
                         sync_path,
                         old_sync_path,
-                        timestamp: SystemTime::now(),
+                        timestamp: get_now_as_millis(),
                     })
                 }
             }
@@ -299,7 +299,7 @@ pub fn get_sync_events(config: &SherryConfigSourceJSON, result: &BasedDebounceEv
                 old_local_path,
                 sync_path,
                 old_sync_path,
-                timestamp: SystemTime::now(),
+                timestamp: get_now_as_millis(),
             })
         }
         EventKind::Remove(_) => {
@@ -314,7 +314,7 @@ pub fn get_sync_events(config: &SherryConfigSourceJSON, result: &BasedDebounceEv
                 old_local_path,
                 sync_path,
                 old_sync_path,
-                timestamp: SystemTime::now(),
+                timestamp: get_now_as_millis(),
             })
         }
         _ => {}
