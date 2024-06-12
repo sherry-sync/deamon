@@ -9,7 +9,8 @@ use crate::event::file_event::{FileType, get_sync_path, SyncEvent, SyncEventKind
 use crate::files::{delete_file, write_file_from_stream};
 use crate::hash::{FileHashJSON, recreate_hashes, update_hashes};
 use crate::helpers::normalize_path;
-use crate::server::api::{ApiClient, ApiFileResponse};
+use crate::server::api::ApiClient;
+use crate::server::types::ApiFileResponse;
 
 pub async fn fetch_watcher_files(dir: &PathBuf, config: &SherryConfigJSON, watcher: &SherryConfigWatcherJSON, source: &SherryConfigSourceJSON, user: &Credentials) -> (SherryConfigWatcherJSON, Result<(), String>) {
     log::info!("Fetching watcher files for {}, {}, {}", &watcher.local_path, &user.user_id, &source.id);

@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::time::SystemTime;
 
 use serde::{Deserialize, Serialize};
 use serde_diff::SerdeDiff;
@@ -9,7 +8,8 @@ use crate::config::SherryConfigJSON;
 use crate::constants::{AUTH_FILE, EXPIRATION_THRESHOLD};
 use crate::files::{initialize_json_file, read_json_file, write_json_file};
 use crate::helpers::{get_now, ordered_map};
-use crate::server::api::{ApiAuthResponse, ApiClient};
+use crate::server::api::ApiClient;
+use crate::server::types::ApiAuthResponse;
 
 #[derive(SerdeDiff, Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
 #[serde(rename_all = "camelCase")]

@@ -17,8 +17,9 @@ use crate::auth::{initialize_auth_config, read_auth_config, revalidate_auth, She
 use crate::constants::{AUTH_FILE, CONFIG_FILE, DEFAULT_API_URL, DEFAULT_SOCKET_URL, ENV_API_URL, ENV_SOCKET_URL};
 use crate::files::{initialize_json_file, read_json_file, write_json_file};
 use crate::helpers::{ordered_map, str_err_prefix};
-use crate::server::api::{ApiClient, ApiFolderPermissionAccessRights, ApiFolderResponse};
+use crate::server::api::ApiClient;
 use crate::server::socket::SocketClient;
+use crate::server::types::{ApiFolderPermissionAccessRights, ApiFolderResponse};
 use crate::watchers::actualize_watchers;
 
 #[derive(SerdeDiff, Serialize, Deserialize, Copy, Clone, Debug, Eq, PartialEq)]

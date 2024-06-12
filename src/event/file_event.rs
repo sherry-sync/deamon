@@ -5,8 +5,6 @@ use std::ffi::OsStr;
 use std::fmt;
 use std::ops::Deref;
 use std::path::PathBuf;
-use std::time::SystemTime;
-
 use glob::Pattern;
 use notify::event::{DataChange, ModifyKind, RenameMode};
 use notify::EventKind;
