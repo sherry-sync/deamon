@@ -10,7 +10,7 @@ use tokio::sync::Mutex;
 
 use crate::auth::SherryAuthorizationConfigJSON;
 use crate::config::{SherryConfig, SherryConfigJSON, SherryConfigSourceJSON, SherryConfigWatcherJSON};
-use crate::files::{delete_file, write_files_from_stream};
+use crate::files::{delete_path, rename_path, write_files_from_stream};
 use crate::hash::{FileHashJSON, get_hashes, update_hashes};
 use crate::helpers::normalize_path;
 use crate::server::api::ApiClient;
@@ -166,10 +166,43 @@ fn folder_file_upserted_handler<'a>(ctx: Context, payload: Payload, socket: Clie
     }.boxed()
 }
 
-fn folder_file_rename_handler<'a>(ctx: Context, payload: Payload, socket: Client) -> BoxFuture<'a, ()> {
+fn folder_file_moved_handler<'a>(ctx: Context, payload: Payload, socket: Client) -> BoxFuture<'a, ()> {
     log::info!("Folder File Renamed: {:?}", payload);
 
-    async move {}.boxed()
+    async move {
+        let result = match process_file_payload(ctx.clone(), payload).await {
+            Some(res) => res,
+            None => { return; }
+        };
+        let remote_file = result.remote_file;
+        let dir = result.dir;
+        let sources = result.sources;
+        let watchers_paths = result.watchers_paths;
+
+        futures::future::join_all(watchers_paths.iter().map(|(watcher, new_file_path)| {
+            let remote_file = remote_file.clone();
+            let dir = dir.clone();
+            let source = sources.get(&watcher.source).unwrap();
+            let local_path = normalize_path(&PathBuf::from(&watcher.local_path));
+            let old_path = normalize_path(&PathBuf::from(&local_path).join(&remote_file.old_path));
+            let old_path_string = old_path.to_str().unwrap().to_string();
+            async move {
+                if let Err(_) = rename_path(&old_path, new_file_path).await { return; }
+                let mut hashes = get_hashes(&dir, &source, &local_path, &watcher.hashes_id).await.unwrap();
+                for (k, v) in hashes.hashes.clone().iter() {
+                    if k.starts_with(&old_path.to_str().unwrap().to_string()) {
+                        hashes.hashes.remove(k);
+                        hashes.hashes.insert(new_file_path.join(&k.strip_prefix(&old_path_string).unwrap()).to_str().unwrap().to_string(), FileHashJSON {
+                            hash: remote_file.hash.clone(),
+                            timestamp: remote_file.updated_at,
+                            size: remote_file.size,
+                        });
+                    }
+                }
+                update_hashes(&dir, &hashes).await.ok();
+            }
+        })).await;
+    }.boxed()
 }
 
 fn folder_file_deleted_handler<'a>(ctx: Context, payload: Payload, socket: Client) -> BoxFuture<'a, ()> {
@@ -189,7 +222,7 @@ fn folder_file_deleted_handler<'a>(ctx: Context, payload: Payload, socket: Clien
             let source = sources.get(&watcher.source).unwrap();
             let local_path = PathBuf::from(&watcher.local_path);
             async move {
-                if let Err(_) = delete_file(file_path).await { return; }
+                if let Err(_) = delete_path(file_path).await { return; }
                 let mut hashes = get_hashes(&dir, &source, &local_path, &watcher.hashes_id).await.unwrap();
                 hashes.hashes.remove(&normalize_path(&file_path).to_str().unwrap().to_string());
                 update_hashes(&dir, &hashes).await.ok();
@@ -268,7 +301,7 @@ impl SocketClient {
 
                 .on("FOLDER:FILE:CREATED", get_cb_with_ctx(&ctx, folder_file_upserted_handler))
                 .on("FOLDER:FILE:UPDATED", get_cb_with_ctx(&ctx, folder_file_upserted_handler))
-                .on("FOLDER:FILE:RENAME", get_cb_with_ctx(&ctx, folder_file_rename_handler))
+                .on("FOLDER:FILE:MOVED", get_cb_with_ctx(&ctx, folder_file_moved_handler))
                 .on("FOLDER:FILE:DELETED", get_cb_with_ctx(&ctx, folder_file_deleted_handler))
 
                 .on("error", get_cb_with_ctx(&ctx, error_handler))

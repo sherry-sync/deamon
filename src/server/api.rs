@@ -1,6 +1,7 @@
 use std::env;
 use std::fmt::Display;
 
+use log4rs::append::Append;
 use reqwest::{Body, Method, multipart, RequestBuilder, Url};
 use serde_json::json;
 use tokio::fs::File;
@@ -9,7 +10,6 @@ use tokio_util::codec::{BytesCodec, FramedRead};
 use crate::constants::{DEFAULT_API_URL, ENV_API_URL};
 use crate::event::file_event::{SyncEvent, SyncEventKind};
 use crate::server::types::{ApiAuthResponse, ApiFileResponse, ApiFolderResponse};
-
 
 #[derive(Clone)]
 pub struct ApiClient {
@@ -45,41 +45,44 @@ impl ApiClient {
     }
 
     pub async fn send_file(&self, event: &SyncEvent) -> Result<reqwest::Response, reqwest::Error> {
-        let mut form = multipart::Form::new()
-            .text("kind", event.kind.to_string())
-            .text("fileType", event.file_type.to_string())
-            .text("path", event.sync_path.to_string())
-            .text("oldPath", event.old_sync_path.to_string())
-            .text("size", event.size.to_string())
-            .text("hash", event.update_hash.to_string());
-        if event.kind == SyncEventKind::Create || event.kind == SyncEventKind::Update {
+        let mut form = multipart::Form::new();
+        if event.kind == SyncEventKind::Created || event.kind == SyncEventKind::Updated {
             form = form
                 .part("file", multipart::Part::stream(Body::wrap_stream(FramedRead::new(
                     File::open(&event.local_path).await.unwrap(),
                     BytesCodec::new(),
-                ))));
+                ))).file_name("file"));
         };
 
-        self.get_client(Method::POST, format!("/file/{}", &event.source_id)).multipart(form).send().await
+        form = form.text("sherryId", event.source_id.to_string())
+            .text("eventType", event.kind.to_string().to_uppercase())
+            .text("fileType", event.file_type.to_string().to_uppercase())
+            .text("path", event.sync_path.to_string())
+            .text("oldPath", event.old_sync_path.to_string())
+            .text("size", event.size.to_string())
+            .text("hash", event.update_hash.to_string());
+
+        self.get_client(Method::POST, "/file/event").multipart(form).send().await
     }
 
     pub async fn check_file(&self, event: &SyncEvent) -> Result<reqwest::Response, reqwest::Error> {
-        self.get_client(Method::POST, format!("/file/{}/check", &event.source_id)).json(&json!({
-            "kind": event.kind.to_string(),
-            "fileType": event.file_type.to_string(),
+        self.get_client(Method::POST, "/file/verify").json(&json!({
+            "sherryId": event.source_id,
+            "eventType": event.kind.to_string().to_uppercase(),
+            "fileType": event.file_type.to_string().to_uppercase(),
             "path": event.sync_path.to_string(),
             "oldPath": event.old_sync_path.to_string(),
-            "size": event.size.to_string(),
+            "size": event.size,
             "hash": event.update_hash.to_string(),
         })).send().await
     }
 
     pub async fn get_folder_files(&self, sherry_id: &String) -> Result<Vec<ApiFileResponse>, reqwest::Error> {
-        self.get_client(Method::GET, format!("/file/{sherry_id}")).send().await?.json::<Vec<ApiFileResponse>>().await
+        self.get_client(Method::GET, format!("/file/{sherry_id}")).send().await?.json().await
     }
 
     pub async fn get_file(&self, sherry_id: &String, path: &String) -> Result<reqwest::Response, reqwest::Error> {
-        self.get_client(Method::GET, format!("/file/{sherry_id}?path={path}")).send().await
+        self.get_client(Method::GET, format!("/file/instance/{sherry_id}?path={path}")).send().await
     }
 
     pub fn new(base: &String, auth: &String) -> Self {

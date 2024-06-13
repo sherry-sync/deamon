@@ -9,6 +9,8 @@ use glob::Pattern;
 use notify::event::{DataChange, ModifyKind, RenameMode};
 use notify::EventKind;
 use notify_debouncer_full::DebouncedEvent;
+use serde::{Deserialize, Serialize};
+use serde_diff::SerdeDiff;
 
 use crate::config::SherryConfigSourceJSON;
 use crate::event::event_processing::BasedDebounceEvent;
@@ -17,10 +19,10 @@ use crate::helpers::{get_now_as_millis, normalize_path, PATH_SEP};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum SyncEventKind {
-    Create,
-    Update,
-    Rename,
-    Delete,
+    Created,
+    Updated,
+    Moved,
+    Deleted,
 }
 
 impl Display for SyncEventKind {
@@ -29,7 +31,8 @@ impl Display for SyncEventKind {
     }
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, SerdeDiff, Serialize, Deserialize)]
+#[serde(rename_all = "UPPERCASE")]
 pub enum FileType {
     Dir,
     File,
@@ -215,7 +218,7 @@ pub fn get_sync_events(config: &SherryConfigSourceJSON, result: &BasedDebounceEv
                         source_id: config.id.clone(),
                         base: base.clone(),
                         file_type: FileType::Dir,
-                        kind: SyncEventKind::Rename,
+                        kind: SyncEventKind::Moved,
                         update_hash: "".to_string(),
                         size: 0,
                         local_path,
@@ -227,14 +230,14 @@ pub fn get_sync_events(config: &SherryConfigSourceJSON, result: &BasedDebounceEv
                 }
             }
             EventKind::Create(_) => {
-                events.extend(get_dir_file_events(config, &local_path, base, &SyncEventKind::Create));
+                events.extend(get_dir_file_events(config, &local_path, base, &SyncEventKind::Created));
             }
             EventKind::Remove(_) => {
                 events.push(SyncEvent {
                     source_id: config.id.clone(),
                     base: base.clone(),
                     file_type: FileType::Dir,
-                    kind: SyncEventKind::Delete,
+                    kind: SyncEventKind::Deleted,
                     update_hash: "".to_string(),
                     size: 0,
                     local_path,
@@ -258,7 +261,7 @@ pub fn get_sync_events(config: &SherryConfigSourceJSON, result: &BasedDebounceEv
                         source_id: config.id.clone(),
                         base: base.clone(),
                         file_type: FileType::File,
-                        kind: SyncEventKind::Rename,
+                        kind: SyncEventKind::Moved,
                         update_hash: "".to_string(),
                         size: 0,
                         local_path,
@@ -273,7 +276,7 @@ pub fn get_sync_events(config: &SherryConfigSourceJSON, result: &BasedDebounceEv
                         source_id: config.id.clone(),
                         base: base.clone(),
                         file_type: FileType::File,
-                        kind: SyncEventKind::Update,
+                        kind: SyncEventKind::Updated,
                         update_hash: "".to_string(),
                         size: 0,
                         local_path,
@@ -290,7 +293,7 @@ pub fn get_sync_events(config: &SherryConfigSourceJSON, result: &BasedDebounceEv
                 source_id: config.id.clone(),
                 base: base.clone(),
                 file_type: FileType::File,
-                kind: SyncEventKind::Create,
+                kind: SyncEventKind::Created,
                 update_hash: "".to_string(),
                 size: 0,
                 local_path,
@@ -305,7 +308,7 @@ pub fn get_sync_events(config: &SherryConfigSourceJSON, result: &BasedDebounceEv
                 source_id: config.id.clone(),
                 base: base.clone(),
                 file_type: FileType::File,
-                kind: SyncEventKind::Delete,
+                kind: SyncEventKind::Deleted,
                 update_hash: "".to_string(),
                 size: 0,
                 local_path,
@@ -330,23 +333,23 @@ struct FileLifetime {
 
 fn resolve_event_pair(a: &SyncEvent, b: &SyncEvent) -> Vec<SyncEvent> {
     match a.kind {
-        SyncEventKind::Delete => {
+        SyncEventKind::Deleted => {
             vec![b.clone()]
         }
-        SyncEventKind::Create => {
+        SyncEventKind::Created => {
             match b.kind {
-                SyncEventKind::Create | SyncEventKind::Update => {
+                SyncEventKind::Created | SyncEventKind::Updated => {
                     vec![SyncEvent {
-                        kind: SyncEventKind::Create,
+                        kind: SyncEventKind::Created,
                         ..b.clone()
                     }]
                 }
-                SyncEventKind::Delete => {
+                SyncEventKind::Deleted => {
                     vec![b.clone()]
                 }
-                SyncEventKind::Rename => {
+                SyncEventKind::Moved => {
                     vec![SyncEvent {
-                        kind: SyncEventKind::Create,
+                        kind: SyncEventKind::Created,
                         old_sync_path: b.sync_path.clone(),
                         update_hash: a.update_hash.clone(),
                         size: a.size,
@@ -355,25 +358,25 @@ fn resolve_event_pair(a: &SyncEvent, b: &SyncEvent) -> Vec<SyncEvent> {
                 }
             }
         }
-        SyncEventKind::Update => {
+        SyncEventKind::Updated => {
             match b.kind {
-                SyncEventKind::Create | SyncEventKind::Update => {
+                SyncEventKind::Created | SyncEventKind::Updated => {
                     vec![SyncEvent {
-                        kind: SyncEventKind::Update,
+                        kind: SyncEventKind::Updated,
                         ..b.clone()
                     }]
                 }
-                SyncEventKind::Delete => {
+                SyncEventKind::Deleted => {
                     vec![b.clone()]
                 }
-                SyncEventKind::Rename => {
+                SyncEventKind::Moved => {
                     vec![
                         SyncEvent {
-                            kind: SyncEventKind::Delete,
+                            kind: SyncEventKind::Deleted,
                             ..a.clone()
                         },
                         SyncEvent {
-                            kind: SyncEventKind::Create,
+                            kind: SyncEventKind::Created,
                             update_hash: a.update_hash.clone(),
                             size: a.size,
                             ..b.clone()
@@ -382,31 +385,31 @@ fn resolve_event_pair(a: &SyncEvent, b: &SyncEvent) -> Vec<SyncEvent> {
                 }
             }
         }
-        SyncEventKind::Rename => {
+        SyncEventKind::Moved => {
             match b.kind {
-                SyncEventKind::Create | SyncEventKind::Update => {
+                SyncEventKind::Created | SyncEventKind::Updated => {
                     vec![
                         SyncEvent {
-                            kind: SyncEventKind::Delete,
+                            kind: SyncEventKind::Deleted,
                             sync_path: a.old_sync_path.clone(),
                             ..a.clone()
                         },
                         SyncEvent {
-                            kind: SyncEventKind::Create,
+                            kind: SyncEventKind::Created,
                             update_hash: a.update_hash.clone(),
                             size: a.size,
                             ..b.clone()
                         },
                     ]
                 }
-                SyncEventKind::Delete => {
+                SyncEventKind::Deleted => {
                     vec![SyncEvent {
-                        kind: SyncEventKind::Delete,
+                        kind: SyncEventKind::Deleted,
                         sync_path: a.old_sync_path.clone(),
                         ..a.clone()
                     }, b.clone()]
                 }
-                SyncEventKind::Rename => {
+                SyncEventKind::Moved => {
                     if a.old_sync_path == b.sync_path {
                         vec![]
                     } else {
@@ -434,7 +437,7 @@ pub fn optimize_events(events: &Vec<SyncEvent>) -> Vec<SyncEvent> {
         });
         lifetime.events.push(event.clone());
 
-        if event.kind == SyncEventKind::Rename {
+        if event.kind == SyncEventKind::Moved {
             lifetime.next = Some(event.sync_path.clone());
         }
     }
@@ -504,7 +507,7 @@ pub fn filter_events(config: &SherryConfigSourceJSON, events: &Vec<SyncEvent>) -
             return None;
         }
 
-        if e.kind == SyncEventKind::Delete {
+        if e.kind == SyncEventKind::Deleted {
             return Some(e.clone());
         }
 

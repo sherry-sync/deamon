@@ -76,11 +76,11 @@ pub async fn process_result(app: crate::app::App, source_id: &String, results: &
 
         let mut to_update = updated_hashes.entry(base.clone()).or_insert(hashes.clone());
         match e.kind {
-            SyncEventKind::Delete => {
+            SyncEventKind::Deleted => {
                 to_update.hashes.remove(&e.local_path.to_str().unwrap().to_string());
                 to_update.hashes.insert(e.local_path.to_str().unwrap().to_string(), FileHashJSON { hash: "".to_string(), timestamp: get_now_as_millis(), size: 0 });
             }
-            SyncEventKind::Rename => {
+            SyncEventKind::Moved => {
                 to_update.hashes.remove(&e.old_local_path.to_str().unwrap().to_string());
                 to_update.hashes.insert(e.local_path.to_str().unwrap().to_string(), FileHashJSON { hash: e.update_hash.clone(), timestamp: get_now_as_millis(), size: e.size });
             }
@@ -89,7 +89,7 @@ pub async fn process_result(app: crate::app::App, source_id: &String, results: &
             }
         }
 
-        let client = ApiClient::new(&config.api_url, &auth.records.get(&source.id).unwrap().access_token);
+        let client = ApiClient::new(&config.api_url, &auth.records.get(&source.user_id).unwrap().access_token);
 
         match client.check_file(&e).await {
             Ok(res) => {
@@ -102,7 +102,18 @@ pub async fn process_result(app: crate::app::App, source_id: &String, results: &
             }
         }
 
-        client.send_file(&e).await.ok();
+        match client.send_file(&e).await {
+            Ok(res) => {
+                if res.status() != 200 {
+                    log::error!("Error sending file: {}", res.text().await.unwrap());
+                    continue;
+                }
+            }
+            Err(err) => {
+                log::error!("Error sending file: {}", err);
+                continue;
+            }
+        }
     }
     for (k, v) in updated_hashes {
         if *hashes_map.get(&k).unwrap() != v {

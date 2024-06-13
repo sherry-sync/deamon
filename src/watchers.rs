@@ -6,7 +6,7 @@ use futures::future;
 use crate::auth::Credentials;
 use crate::config::{SherryConfigJSON, SherryConfigSourceJSON, SherryConfigWatcherJSON};
 use crate::event::file_event::{FileType, get_sync_path, SyncEvent, SyncEventKind};
-use crate::files::{delete_file, write_file_from_stream};
+use crate::files::{delete_path, write_file_from_stream};
 use crate::hash::{FileHashJSON, recreate_hashes, update_hashes};
 use crate::helpers::normalize_path;
 use crate::server::api::ApiClient;
@@ -52,14 +52,14 @@ pub async fn fetch_watcher_files(dir: &PathBuf, config: &SherryConfigJSON, watch
                 if remote.hash.is_empty() {
                     to_delete.push((local_path, sync_path, remote));
                 } else {
-                    to_upload.push((local_path, sync_path, hash, SyncEventKind::Update));
+                    to_upload.push((local_path, sync_path, hash, SyncEventKind::Updated));
                 }
             }
         } else {
             if hash.hash.is_empty() {
-                to_sync.push((None, SyncEventKind::Delete, normalize_path(&local_path).to_str().unwrap().to_string()));
+                to_sync.push((None, SyncEventKind::Deleted, normalize_path(&local_path).to_str().unwrap().to_string()));
             } else {
-                to_upload.push((local_path, sync_path, hash, SyncEventKind::Create));
+                to_upload.push((local_path, sync_path, hash, SyncEventKind::Created));
             }
         }
     }
@@ -80,7 +80,7 @@ pub async fn fetch_watcher_files(dir: &PathBuf, config: &SherryConfigJSON, watch
         }
     })).await.iter().for_each(|to_update| {
         match to_update {
-            Some((hash, path)) => to_sync.push((Some(hash.clone()), SyncEventKind::Update, path.clone())),
+            Some((hash, path)) => to_sync.push((Some(hash.clone()), SyncEventKind::Updated, path.clone())),
             None => {}
         }
     });
@@ -107,21 +107,21 @@ pub async fn fetch_watcher_files(dir: &PathBuf, config: &SherryConfigJSON, watch
 
     futures::future::join_all(to_delete.iter().map(|(local_path, sync_path, hash)| {
         async move {
-            match delete_file(&local_path).await {
+            match delete_path(&local_path).await {
                 Ok(_) => Some((hash.clone(), normalize_path(&local_path).to_str().unwrap().to_string())),
                 Err(_) => None
             }
         }
     })).await.iter().for_each(|to_delete| {
         match to_delete {
-            Some((hash, path)) => to_sync.push((Some(hash.clone()), SyncEventKind::Delete, path.clone())),
+            Some((hash, path)) => to_sync.push((Some(hash.clone()), SyncEventKind::Deleted, path.clone())),
             None => {}
         }
     });
 
     for (remote, kind, key) in to_sync {
         match kind {
-            SyncEventKind::Create | SyncEventKind::Update => {
+            SyncEventKind::Created | SyncEventKind::Updated => {
                 let remote = remote.unwrap();
                 local_hashes.hashes.insert(key, FileHashJSON {
                     hash: remote.hash.clone(),
@@ -129,7 +129,7 @@ pub async fn fetch_watcher_files(dir: &PathBuf, config: &SherryConfigJSON, watch
                     size: remote.size,
                 });
             }
-            SyncEventKind::Delete => {
+            SyncEventKind::Deleted => {
                 local_hashes.hashes.remove(&key);
             }
             _ => continue

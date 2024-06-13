@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use serde_diff::SerdeDiff;
 
+use crate::event::file_event::FileType;
+
 #[derive(SerdeDiff, Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiAuthResponse {
@@ -15,12 +17,15 @@ pub struct ApiAuthResponse {
 #[derive(SerdeDiff, Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiFileResponse {
+    pub sherry_file_id: String,
     pub sherry_id: String,
     pub path: String,
+    pub old_path: String,
     pub hash: String,
     pub size: u64,
     pub created_at: i128,
     pub updated_at: i128,
+    pub file_type: FileType,
 }
 
 

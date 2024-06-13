@@ -90,7 +90,16 @@ pub async fn write_files_from_stream(paths: &Vec<PathBuf>, mut stream: impl Stre
     Ok(())
 }
 
-pub async fn delete_file(path: impl AsRef<Path>) -> Result<(), String> {
-    fs::remove_file(path).await.map_err(str_err_prefix("Error File Remove"))?;
+pub async fn delete_path(path: &PathBuf) -> Result<(), String> {
+    if path.is_dir() {
+        fs::remove_dir_all(&path).await.map_err(str_err_prefix("Error Dir Remove"))?;
+    } else {
+        fs::remove_file(path).await.map_err(str_err_prefix("Error File Remove"))?;
+    }
+    Ok(())
+}
+
+pub async fn rename_path(old: &PathBuf, new: &PathBuf) -> Result<(), String> {
+    fs::rename(old, new).await.map_err(str_err_prefix("Error File/Folder Rename"))?;
     Ok(())
 }
