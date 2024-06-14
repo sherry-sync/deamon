@@ -66,8 +66,20 @@ pub async fn initialize_json_file_with<T, P: AsRef<Path>, C, Fut>(path: P, defau
     }
 }
 
-pub async fn write_file_from_stream(path: impl AsRef<Path>, mut stream: impl Stream<Item=Result<Bytes, reqwest::Error>> + Unpin) -> Result<(), String> {
-    let mut file = fs::File::create(path).await.map_err(str_err_prefix("Error File Create"))?;
+async fn create_file(path: &PathBuf) -> Result<fs::File, String> {
+    match fs::create_dir_all(path.parent().unwrap()).await {
+        Err(e) => {
+            if e.kind() != std::io::ErrorKind::AlreadyExists {
+                return Err(e).map_err(str_err_prefix("Error Dir Create"));
+            }
+        }
+        _ => (),
+    };
+    fs::File::create(path).await.map_err(str_err_prefix("Error File Create"))
+}
+
+pub async fn write_file_from_stream(path: &PathBuf, mut stream: impl Stream<Item=Result<Bytes, reqwest::Error>> + Unpin) -> Result<(), String> {
+    let mut file = create_file(path).await?;
     while let Some(chunk_result) = stream.next().await {
         let chunk = chunk_result.map_err(str_err_prefix("Invalid chunk"))?;
         file.write_all(&chunk).await.map_err(str_err_prefix("Error Write"))?;
@@ -76,9 +88,7 @@ pub async fn write_file_from_stream(path: impl AsRef<Path>, mut stream: impl Str
 }
 
 pub async fn write_files_from_stream(paths: &Vec<PathBuf>, mut stream: impl Stream<Item=Result<Bytes, reqwest::Error>> + Unpin) -> Result<(), String> {
-    let mut files = futures::future::join_all(paths.iter().map(|p| async move {
-        fs::File::create(&p).await.map_err(str_err_prefix("Error File Create")).unwrap()
-    })).await;
+    let mut files = futures::future::join_all(paths.iter().map(|p| create_file(&p))).await.into_iter().filter_map(|v| v.ok()).collect::<Vec<fs::File>>();
 
     while let Some(chunk_result) = stream.next().await {
         let chunk = chunk_result.map_err(str_err_prefix("Invalid chunk"))?;

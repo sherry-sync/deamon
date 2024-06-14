@@ -5,6 +5,7 @@ use std::ffi::OsStr;
 use std::fmt;
 use std::ops::Deref;
 use std::path::PathBuf;
+
 use glob::Pattern;
 use notify::event::{DataChange, ModifyKind, RenameMode};
 use notify::EventKind;
@@ -252,6 +253,7 @@ pub fn get_sync_events(config: &SherryConfigSourceJSON, result: &BasedDebounceEv
         return events;
     }
 
+    let file_type = if local_path.is_file() { FileType::File } else { FileType::Dir };
 
     match result.kind {
         EventKind::Modify(kind) => {
@@ -260,7 +262,7 @@ pub fn get_sync_events(config: &SherryConfigSourceJSON, result: &BasedDebounceEv
                     events.push(SyncEvent {
                         source_id: config.id.clone(),
                         base: base.clone(),
-                        file_type: FileType::File,
+                        file_type,
                         kind: SyncEventKind::Moved,
                         update_hash: "".to_string(),
                         size: 0,
@@ -275,7 +277,7 @@ pub fn get_sync_events(config: &SherryConfigSourceJSON, result: &BasedDebounceEv
                     events.push(SyncEvent {
                         source_id: config.id.clone(),
                         base: base.clone(),
-                        file_type: FileType::File,
+                        file_type,
                         kind: SyncEventKind::Updated,
                         update_hash: "".to_string(),
                         size: 0,
@@ -292,7 +294,7 @@ pub fn get_sync_events(config: &SherryConfigSourceJSON, result: &BasedDebounceEv
             events.push(SyncEvent {
                 source_id: config.id.clone(),
                 base: base.clone(),
-                file_type: FileType::File,
+                file_type,
                 kind: SyncEventKind::Created,
                 update_hash: "".to_string(),
                 size: 0,
@@ -307,7 +309,7 @@ pub fn get_sync_events(config: &SherryConfigSourceJSON, result: &BasedDebounceEv
             events.push(SyncEvent {
                 source_id: config.id.clone(),
                 base: base.clone(),
-                file_type: FileType::File,
+                file_type,
                 kind: SyncEventKind::Deleted,
                 update_hash: "".to_string(),
                 size: 0,

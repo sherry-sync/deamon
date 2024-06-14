@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, HashMap};
 use std::ffi::OsStr;
+use std::fmt::Display;
 use std::path::PathBuf;
 use std::time::SystemTime;
 
@@ -17,7 +18,7 @@ pub fn ordered_map<S, K: Ord + Serialize, V: Serialize>(
     ordered.serialize(serializer)
 }
 
-pub fn str_err_prefix<T: ToString + 'static>(prefix: &'static str) -> impl Fn(T) -> String {
+pub fn str_err_prefix<T: ToString + 'static>(prefix: impl Display) -> impl Fn(T) -> String {
     move |e| {
         let msg = format!("{}: {}", prefix, e.to_string());
         log::error!("{}", msg);

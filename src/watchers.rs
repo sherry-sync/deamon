@@ -64,10 +64,11 @@ pub async fn fetch_watcher_files(dir: &PathBuf, config: &SherryConfigJSON, watch
         }
     }
     for remote in remote_hashes {
-        to_download.push((PathBuf::from(&remote.path), remote.path.clone(), remote.clone()))
+        to_download.push((watcher_path.join(PathBuf::from(&remote.path)), remote.path.clone(), remote.clone()))
     }
 
     futures::future::join_all(to_download.iter().map(|(local_path, sync_path, hash)| {
+        log::info!("Downloading to {}", &local_path.to_str().unwrap());
         let client = client.clone();
         async move {
             match client.get_file(&source.id, &sync_path).await {
