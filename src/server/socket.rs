@@ -189,7 +189,7 @@ fn folder_file_moved_handler<'a>(ctx: Context, payload: Payload, socket: Client)
             async move {
                 if let Err(_) = rename_path(&old_path, new_file_path).await { return; }
                 let mut hashes = get_hashes(&dir, &source, &local_path, &watcher.hashes_id).await.unwrap();
-                for (k, v) in hashes.hashes.clone().iter() {
+                for (k, _) in hashes.hashes.clone().iter() {
                     if k.starts_with(&old_path.to_str().unwrap().to_string()) {
                         hashes.hashes.remove(k);
                         hashes.hashes.insert(new_file_path.join(&k.strip_prefix(&old_path_string).unwrap()).to_str().unwrap().to_string(), FileHashJSON {
@@ -280,16 +280,15 @@ impl SocketClient {
         self._is_up.lock().await.clone()
     }
     async fn connect(&mut self) {
-        let (data, auth) = async {
-            let config = self.config.lock().await;
-            (config.get_main().await, config.get_auth().await)
-        }.await;
-
         let ctx = Arc::new(Mutex::new(self.clone()));
-        let tokens = auth.records.iter().filter(|(_, v)| !v.expired).map(|(_, v)| v.access_token.clone()).collect::<Vec<String>>().join(";");
         let mut res: Result<Client, Error> = Err(Error::StoppedEngineIoSocket);
 
         while res.is_err() {
+            let (data, auth) = async {
+                let config = self.config.lock().await;
+                (config.get_main().await, config.get_auth().await)
+            }.await;
+            let tokens = auth.records.iter().filter(|(_, v)| !v.expired).map(|(_, v)| v.access_token.clone()).collect::<Vec<String>>().join(";");
             res = ClientBuilder::new(&data.socket_url)
                 .opening_header("authorization", tokens.clone())
                 .on("FOLDER:CREATED", get_cb_with_ctx(&ctx, folder_created_handler))
