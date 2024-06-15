@@ -1,8 +1,11 @@
 use std::collections::HashMap;
+use std::future::Future;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
+use futures::{stream, StreamExt};
+use futures::future::MaybeDone;
 use notify_debouncer_full::DebouncedEvent;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::Sender;
@@ -34,16 +37,26 @@ pub async fn process_result(app: crate::app::App, source_id: &String, results: &
         return;
     }
 
-    let events = &minify_results(&results)
+    let events = futures::future::join_all(minify_results(&results)
         .iter()
-        .flat_map(|r| get_sync_events(&source, r))
-        .collect::<Vec<SyncEvent>>();
-
+        .filter_map(|e| {
+            let watcher =  match watchers.get(&e.base.to_str().unwrap().to_string()) {
+                Some(watcher) => watcher,
+                None => return None,
+            };
+            Some(get_sync_events(&source, &e, &dir, &watcher))
+        })
+        .collect::<Vec<_>>()).await.into_iter().flatten().collect::<Vec<SyncEvent>>();
     log_events("Received", &events);
 
-    let events = complete_events(&filter_events(&source, &optimize_events(&events))).await;
-
+    let events = optimize_events(&events);
     log_events("Optimized", &events);
+
+    let events = filter_events(&source, &events);
+    log_events("Filtered", &events);
+
+    let events = complete_events(&events).await;
+    log_events("Completed", &events);
 
     let mut hashes_map = HashMap::new();
     let mut updated_hashes = HashMap::new();

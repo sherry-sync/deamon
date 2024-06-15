@@ -10,12 +10,13 @@ use glob::Pattern;
 use notify::event::{DataChange, ModifyKind, RenameMode};
 use notify::EventKind;
 use notify_debouncer_full::DebouncedEvent;
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_diff::SerdeDiff;
 
-use crate::config::SherryConfigSourceJSON;
+use crate::config::{SherryConfigSourceJSON, SherryConfigWatcherJSON};
 use crate::event::event_processing::BasedDebounceEvent;
-use crate::hash::get_file_hash;
+use crate::hash::{get_file_hash, get_hashes};
 use crate::helpers::{get_now_as_millis, normalize_path, PATH_SEP};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -190,7 +191,7 @@ fn get_dir_file_events(config: &SherryConfigSourceJSON, path: &PathBuf, base: &P
     events
 }
 
-pub fn get_sync_events(config: &SherryConfigSourceJSON, result: &BasedDebounceEvent) -> Vec<SyncEvent> {
+pub async fn get_sync_events(config: &SherryConfigSourceJSON, result: &BasedDebounceEvent, dir: &PathBuf, watcher: &SherryConfigWatcherJSON) -> Vec<SyncEvent> {
     // Modify(Any) - file update
     // Modify(Name(Both)) file/dir rename
     // Create(Any) - file/dir created
@@ -201,7 +202,6 @@ pub fn get_sync_events(config: &SherryConfigSourceJSON, result: &BasedDebounceEv
 
     let mut events = Vec::new();
 
-
     let local_path = normalize_path(&result.paths.last().unwrap().to_path_buf());
     let old_local_path = normalize_path(&result.paths.first().unwrap().to_path_buf());
     if local_path.is_symlink() {
@@ -210,6 +210,30 @@ pub fn get_sync_events(config: &SherryConfigSourceJSON, result: &BasedDebounceEv
 
     let sync_path = get_sync_path(&local_path, base);
     let old_sync_path = get_sync_path(&old_local_path, base);
+
+    if !local_path.exists() {
+        let hashes = get_hashes(dir, config, base, &watcher.hashes_id).await.unwrap();
+        let parent_path = Regex::new(r"/+$").unwrap().replace_all(local_path.to_str().unwrap(), PATH_SEP).to_string();
+        hashes.hashes.iter().for_each(|(local_path, _)| {
+            if local_path.starts_with(&parent_path) {
+                let local_path = PathBuf::from(local_path);
+                let sync_path = get_sync_path(&local_path, base);
+                events.push(SyncEvent {
+                    source_id: config.id.clone(),
+                    base: base.clone(),
+                    file_type: FileType::File,
+                    kind: SyncEventKind::Deleted,
+                    local_path: local_path.clone(),
+                    old_local_path: local_path.clone(),
+                    sync_path: sync_path.clone(),
+                    old_sync_path: sync_path.clone(),
+                    update_hash: "".to_string(),
+                    size: 0,
+                    timestamp: get_now_as_millis(),
+                })
+            }
+        })
+    }
 
     if local_path.is_dir() {
         match result.kind {
