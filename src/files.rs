@@ -102,9 +102,9 @@ pub async fn write_files_from_stream(paths: &Vec<PathBuf>, mut stream: impl Stre
 
 pub async fn delete_path(path: &PathBuf) -> Result<(), String> {
     if path.is_dir() {
-        fs::remove_dir_all(&path).await.map_err(str_err_prefix("Error Dir Remove"))?;
+        fs::remove_dir_all(&path).await.map_err(str_err_prefix(format!("Error Dir Remove at {}", &path.to_str().unwrap())))?;
     } else {
-        fs::remove_file(path).await.map_err(str_err_prefix("Error File Remove"))?;
+        fs::remove_file(path).await.map_err(str_err_prefix(format!("Error File Remove at {}", &path.to_str().unwrap())))?;
     }
     Ok(())
 }

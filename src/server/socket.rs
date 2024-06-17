@@ -140,6 +140,8 @@ fn folder_file_upserted_handler<'a>(ctx: Context, payload: Payload, socket: Clie
         let watchers_paths = result.watchers_paths;
         let client = result.client;
 
+        log::info!("==========TO UPSERT\n{:?}", &watchers_paths);
+
         let file_content = client.get_file(&remote_file.sherry_id, &remote_file.path).await;
         if file_content.is_err() {
             return;

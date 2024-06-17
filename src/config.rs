@@ -123,14 +123,14 @@ async fn revalidate_config(new: &SherryConfigJSON, old: &SherryConfigJSON, auth:
             invalid_watchers.push(watcher.clone());
             continue;
         }
-        if old.watchers.iter().find(|w| w.hashes_id == watcher.hashes_id).is_none() {
-            new_watchers.push(watcher.clone());
-        } else {
-            let old_watcher = old.watchers.iter().find(|w| w.hashes_id == watcher.hashes_id).unwrap();
-            if old_watcher != watcher {
-                updated_watchers.push(watcher.clone());
-            } else {
-                valid_watchers.push(watcher.clone());
+        match old.watchers.iter().find(|w| w.local_path == watcher.local_path) {
+            None => new_watchers.push(watcher.clone()),
+            Some(old_watcher) => {
+                if old_watcher != watcher {
+                    updated_watchers.push(watcher.clone());
+                } else {
+                    valid_watchers.push(watcher.clone());
+                }
             }
         }
     }
@@ -139,6 +139,12 @@ async fn revalidate_config(new: &SherryConfigJSON, old: &SherryConfigJSON, auth:
             deleted_watchers.push(watcher.clone());
         }
     }
+
+    log::info!("Invalid Watchers: {:?}", &invalid_watchers);
+    log::info!("Valid Watchers: {:?}", &valid_watchers);
+    log::info!("New Watchers: {:?}", &new_watchers);
+    log::info!("Updated Watchers: {:?}", &updated_watchers);
+
 
     let mut current_watchers = [valid_watchers.clone(), new_watchers.clone(), updated_watchers.clone()].concat();
     let mut valid_sources: HashMap<String, SherryConfigSourceJSON> = HashMap::new();
@@ -204,7 +210,7 @@ async fn revalidate_config(new: &SherryConfigJSON, old: &SherryConfigJSON, auth:
         }
     });
     current_watchers = current_watchers.iter().map(|w|
-        actualize_result.valid_watchers.iter().find(|ww| ww.source == w.source).get_or_insert(w).clone()
+        actualize_result.valid_watchers.iter().find(|ww| ww.local_path == w.local_path).get_or_insert(w).clone()
     ).collect::<Vec<SherryConfigWatcherJSON>>();
 
     let mut valid_config = new.clone();
