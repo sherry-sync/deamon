@@ -7,7 +7,7 @@ use std::ops::Deref;
 use std::path::PathBuf;
 
 use glob::Pattern;
-use notify::event::{DataChange, ModifyKind, RenameMode};
+use notify::event::{DataChange, ModifyKind, RemoveKind, RenameMode};
 use notify::EventKind;
 use notify_debouncer_full::DebouncedEvent;
 use regex::Regex;
@@ -106,6 +106,23 @@ pub fn minify_results(results: &Vec<BasedDebounceEvent>) -> Vec<BasedDebounceEve
                             }
                             RenameMode::Both => {
                                 new_results.push(result.clone())
+                            }
+                            RenameMode::Any => {
+                                if let Some(p) = result.event.paths.first() {
+                                    if !p.exists() {
+                                        new_results.push(BasedDebounceEvent {
+                                            event: DebouncedEvent {
+                                                event: notify::Event {
+                                                    kind: EventKind::Remove(RemoveKind::Folder),
+                                                    paths: vec![p.clone()],
+                                                    attrs: result.event.attrs.clone(),
+                                                },
+                                                time: result.event.time,
+                                            },
+                                            base: result.base.clone(),
+                                        })
+                                    }
+                                }
                             }
                             _ => {}
                         }

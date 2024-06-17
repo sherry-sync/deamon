@@ -1,11 +1,8 @@
 use std::collections::HashMap;
-use std::future::Future;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use futures::{stream, StreamExt};
-use futures::future::MaybeDone;
 use notify_debouncer_full::DebouncedEvent;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::Sender;
