@@ -119,7 +119,7 @@ async fn revalidate_config(new: &SherryConfigJSON, old: &SherryConfigJSON, auth:
     let mut deleted_watchers: Vec<SherryConfigWatcherJSON> = vec![];
 
     for watcher in new.watchers.iter() {
-        if !auth.records.contains_key(&watcher.user_id) || !new.sources.contains_key(&watcher.source) {
+        if !auth.records.contains_key(&watcher.user_id) || !new.sources.contains_key(&watcher.source) || !PathBuf::from(&watcher.local_path).exists() {
             invalid_watchers.push(watcher.clone());
             continue;
         }
@@ -311,7 +311,7 @@ impl SherryConfig {
                 config_revalidation_meta.deleted_watchers,
                 config_revalidation_meta.updated_watchers.clone(),
             ].concat() {
-                watcher.unwatch(Path::new(&w.local_path)).unwrap();
+                watcher.unwatch(Path::new(&w.local_path)).ok();
             }
             for w in [
                 config_revalidation_meta.new_watchers,
