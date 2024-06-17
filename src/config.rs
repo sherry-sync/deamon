@@ -335,6 +335,8 @@ impl SherryConfig {
             log::info!("Updating socket");
             self.get_socket().await.lock().await.reconnect().await;
         }
+        
+        log::info!("Config updated");
     }
     pub async fn new(dir: &PathBuf) -> Result<SherryConfig, ()> {
         let data = initialize_config_dir(dir).await;
